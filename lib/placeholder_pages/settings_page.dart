@@ -234,7 +234,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   subTextColor: subTextColor,
                   onChanged: (value) {
                     setState(() => isFahrenheit = value);
-                    _updateSetting('temperatureUnit', value ? 'F' : 'C');
+
+                    context.read<AppSettingsCubit>().updateTemperatureUnit(
+                      value ? 'F' : 'C',
+                    );
                   },
                 ),
 
@@ -252,7 +255,10 @@ class _SettingsPageState extends State<SettingsPage> {
                   subTextColor: subTextColor,
                   onChanged: (value) {
                     setState(() => isMph = value);
-                    _updateSetting('windSpeedUnit', value ? 'mph' : 'kmh');
+
+                    context.read<AppSettingsCubit>().updateWindSpeedUnit(
+                      value ? 'mph' : 'kmh',
+                    );
                   },
                 ),
 

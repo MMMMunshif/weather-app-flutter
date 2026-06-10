@@ -249,6 +249,9 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
                       location: currentWeather!,
                       onRefresh: _loadCurrentLocationWeather,
                       accentColor: settingsState.accentColor,
+                      temperatureText: settingsState.formatTemperature(currentWeather!.temperature),
+                      windSpeedText: settingsState.formatWindSpeed(currentWeather!.windSpeed),
+                      unitLabel: settingsState.temperatureSymbol,
                     ),
 
                 const SizedBox(height: 24),
@@ -419,11 +422,17 @@ class _TopWeatherCard extends StatelessWidget {
   final WeatherLocation location;
   final VoidCallback onRefresh;
   final Color accentColor;
+  final String temperatureText;
+  final String windSpeedText;
+  final String unitLabel;
 
   const _TopWeatherCard({
     required this.location,
     required this.onRefresh,
     required this.accentColor,
+    required this.temperatureText,
+    required this.windSpeedText,
+    required this.unitLabel,
   });
 
   @override
@@ -507,7 +516,7 @@ class _TopWeatherCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  location.temperature,
+                  temperatureText,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 68,
@@ -526,7 +535,7 @@ class _TopWeatherCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Wind ${location.windSpeed}   Humidity ${location.humidity}',
+                  'Wind $windSpeedText   Humidity ${location.humidity}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: Colors.white,
@@ -549,8 +558,8 @@ class _TopWeatherCard extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             alignment: Alignment.center,
-            child: const Text(
-              '°C',
+            child: Text(
+              unitLabel,
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 11,
