@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/theme/app_colors.dart';
+import '../../../../features/settings/cubit/app_settings_cubit.dart';
 import '../../models/weather_location.dart';
 
 class WeatherDetailPage extends StatelessWidget {
@@ -13,46 +14,100 @@ class WeatherDetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final settingsState = context.watch<AppSettingsCubit>().state;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: settingsState.backgroundColor,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 120),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _TopBar(onBack: () => Navigator.pop(context)),
-              const SizedBox(height: 16),
+              _TopBar(
+                onBack: () => Navigator.pop(context),
+                badgeColor: settingsState.isDarkMode
+                    ? const Color(0xFF4B4B4B)
+                    : const Color(0xFFE3ECF8),
+                badgeTextColor: settingsState.isDarkMode
+                    ? Colors.white
+                    : settingsState.textColor,
+              ),
+
+              const SizedBox(height: 18),
+
               Center(
                 child: Text(
                   location.city,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w400,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: settingsState.textColor,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _TimeCard(location: location),
-              const SizedBox(height: 12),
-              _MainWeatherCard(location: location),
-              const SizedBox(height: 16),
-              const Text(
+
+              const SizedBox(height: 18),
+
+              _TimeCard(
+                location: location,
+                cardColor: settingsState.cardColor,
+                textColor: settingsState.textColor,
+                subTextColor: settingsState.subTextColor,
+              ),
+
+              const SizedBox(height: 14),
+
+              _MainWeatherCard(
+                location: location,
+                cardColor: settingsState.cardColor,
+                textColor: settingsState.textColor,
+                subTextColor: settingsState.subTextColor,
+              ),
+
+              const SizedBox(height: 20),
+
+              Text(
                 'Hourly Forecast',
                 style: TextStyle(
-                  color: AppColors.white,
-                  fontSize: 13,
+                  color: settingsState.textColor,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 8),
-              _HourlyForecast(location: location),
-              const SizedBox(height: 16),
+
+              const SizedBox(height: 10),
+
+              _HourlyForecast(
+                location: location,
+                cardColor: settingsState.cardColor,
+                textColor: settingsState.textColor,
+                subTextColor: settingsState.subTextColor,
+              ),
+
+              const SizedBox(height: 20),
+
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: _AirQualityCard()),
-                  const SizedBox(width: 10),
-                  Expanded(child: _PrecipitationCard()),
+                  Expanded(
+                    child: _AirQualityCard(
+                      cardColor: settingsState.cardColor,
+                      textColor: settingsState.textColor,
+                      subTextColor: settingsState.subTextColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _PrecipitationCard(
+                      cardColor: settingsState.cardColor,
+                      textColor: settingsState.textColor,
+                      subTextColor: settingsState.subTextColor,
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -65,9 +120,13 @@ class WeatherDetailPage extends StatelessWidget {
 
 class _TopBar extends StatelessWidget {
   final VoidCallback onBack;
+  final Color badgeColor;
+  final Color badgeTextColor;
 
   const _TopBar({
     required this.onBack,
+    required this.badgeColor,
+    required this.badgeTextColor,
   });
 
   @override
@@ -78,23 +137,23 @@ class _TopBar extends StatelessWidget {
           onTap: onBack,
           child: const Icon(
             Icons.arrow_back_ios_new_rounded,
-            color: AppColors.grey,
+            color: Color(0xFF9CA3AF),
             size: 22,
           ),
         ),
         const Spacer(),
         Container(
-          height: 28,
-          width: 28,
-          decoration: const BoxDecoration(
-            color: Color(0xFF4B4B4B),
+          height: 30,
+          width: 30,
+          decoration: BoxDecoration(
+            color: badgeColor,
             shape: BoxShape.circle,
           ),
           alignment: Alignment.center,
-          child: const Text(
-            '°F',
+          child: Text(
+            '°C',
             style: TextStyle(
-              color: Colors.white,
+              color: badgeTextColor,
               fontSize: 11,
               fontWeight: FontWeight.bold,
             ),
@@ -107,30 +166,40 @@ class _TopBar extends StatelessWidget {
 
 class _TimeCard extends StatelessWidget {
   final WeatherLocation location;
+  final Color cardColor;
+  final Color textColor;
+  final Color subTextColor;
 
   const _TimeCard({
     required this.location,
+    required this.cardColor,
+    required this.textColor,
+    required this.subTextColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 48,
+      height: 62,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(8),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
           _TimeInfo(
             label: 'Local Time',
             value: location.localTime,
+            textColor: textColor,
+            subTextColor: subTextColor,
           ),
           const Spacer(),
           _TimeInfo(
             label: 'Your Time',
             value: location.userTime,
+            textColor: textColor,
+            subTextColor: subTextColor,
             alignRight: true,
           ),
         ],
@@ -142,32 +211,39 @@ class _TimeCard extends StatelessWidget {
 class _TimeInfo extends StatelessWidget {
   final String label;
   final String value;
+  final Color textColor;
+  final Color subTextColor;
   final bool alignRight;
 
   const _TimeInfo({
     required this.label,
     required this.value,
+    required this.textColor,
+    required this.subTextColor,
     this.alignRight = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return Column(
-      crossAxisAlignment: alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment:
+      alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppColors.grey,
-            fontSize: 10,
+          style: TextStyle(
+            color: subTextColor,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
           ),
         ),
+        const SizedBox(height: 3),
         Text(
           value,
-          style: const TextStyle(
-            color: AppColors.white,
-            fontSize: 13,
+          style: TextStyle(
+            color: textColor,
+            fontSize: 15,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -178,72 +254,89 @@ class _TimeInfo extends StatelessWidget {
 
 class _MainWeatherCard extends StatelessWidget {
   final WeatherLocation location;
+  final Color cardColor;
+  final Color textColor;
+  final Color subTextColor;
 
   const _MainWeatherCard({
     required this.location,
+    required this.cardColor,
+    required this.textColor,
+    required this.subTextColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(8),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
           Icon(
             location.icon,
             color: location.iconColor,
-            size: 70,
+            size: 72,
           ),
-          const SizedBox(width: 14),
+
+          const SizedBox(width: 16),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   location.temperature,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 48,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 54,
                     height: 0.9,
                     fontWeight: FontWeight.w300,
                   ),
                 ),
+
+                const SizedBox(height: 6),
+
                 Text(
                   'Feels Like ${location.feelsLike}',
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 13,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 14,
                   ),
                 ),
+
+                const SizedBox(height: 6),
+
                 Text(
-                  'H: ${location.high}        L: ${location.low}',
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 12,
+                  'H: ${location.high}     L: ${location.low}',
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
+
+                const SizedBox(height: 12),
+
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 6,
                   children: [
                     Text(
                       'Wind  ${location.windSpeed}',
-                      style: const TextStyle(
-                        color: AppColors.white,
-                        fontSize: 12,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 13,
                       ),
                     ),
-                    const SizedBox(width: 16),
                     Text(
                       'Humidity  ${location.humidity}',
-                      style: const TextStyle(
-                        color: AppColors.white,
-                        fontSize: 12,
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 13,
                       ),
                     ),
                   ],
@@ -259,19 +352,25 @@ class _MainWeatherCard extends StatelessWidget {
 
 class _HourlyForecast extends StatelessWidget {
   final WeatherLocation location;
+  final Color cardColor;
+  final Color textColor;
+  final Color subTextColor;
 
   const _HourlyForecast({
     required this.location,
+    required this.cardColor,
+    required this.textColor,
+    required this.subTextColor,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 88,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      height: 96,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(8),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: location.hourlyForecast.map((hour) {
@@ -281,22 +380,23 @@ class _HourlyForecast extends StatelessWidget {
               children: [
                 Text(
                   hour.time,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 10,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 Icon(
                   hour.icon,
                   color: hour.iconColor,
-                  size: 22,
+                  size: 24,
                 ),
                 Text(
                   hour.temperature,
-                  style: const TextStyle(
-                    color: AppColors.white,
-                    fontSize: 12,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -309,36 +409,51 @@ class _HourlyForecast extends StatelessWidget {
 }
 
 class _AirQualityCard extends StatelessWidget {
+  final Color cardColor;
+  final Color textColor;
+  final Color subTextColor;
+
+  const _AirQualityCard({
+    required this.cardColor,
+    required this.textColor,
+    required this.subTextColor,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 104,
-      padding: const EdgeInsets.all(10),
+      height: 134,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(8),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Air Quality',
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 12,
+              color: textColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 6),
-          const Text(
+
+          const SizedBox(height: 8),
+
+          Text(
             'AQI: 37 (Good)',
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 12,
+              color: textColor,
+              fontSize: 13,
             ),
           ),
-          const SizedBox(height: 8),
+
+          const SizedBox(height: 10),
+
           Container(
-            height: 5,
+            height: 6,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(20),
               gradient: const LinearGradient(
@@ -352,12 +467,29 @@ class _AirQualityCard extends StatelessWidget {
               ),
             ),
           ),
+
           const Spacer(),
-          const Text(
-            'Air quality is good.\nPerfect for outdoor activities.',
+
+          Text(
+            'Air quality is good.',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 9,
+              color: textColor,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          const SizedBox(height: 2),
+
+          Text(
+            'Perfect for outdoor activities.',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: subTextColor,
+              fontSize: 10,
             ),
           ),
         ],
@@ -367,39 +499,72 @@ class _AirQualityCard extends StatelessWidget {
 }
 
 class _PrecipitationCard extends StatelessWidget {
+  final Color cardColor;
+  final Color textColor;
+  final Color subTextColor;
+
+  const _PrecipitationCard({
+    required this.cardColor,
+    required this.textColor,
+    required this.subTextColor,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 104,
-      padding: const EdgeInsets.all(10),
+      height: 134,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(8),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(10),
       ),
-      child: const Column(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             'Precipitation',
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 12,
+              color: textColor,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          SizedBox(height: 8),
+
+          const SizedBox(height: 8),
+
           Text(
             '20%',
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 23,
+              color: textColor,
+              fontSize: 28,
+              height: 1,
               fontWeight: FontWeight.bold,
             ),
           ),
+
+          const SizedBox(height: 8),
+
           Text(
-            'Rainfall: 0.2 in expected\nLight rain expected\nin the evening.',
+            'Rainfall: 0.2 in expected',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: AppColors.white,
-              fontSize: 9,
+              color: textColor,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+
+          const SizedBox(height: 3),
+
+          Text(
+            'Light rain expected in the evening.',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: subTextColor,
+              fontSize: 10,
+              height: 1.2,
             ),
           ),
         ],

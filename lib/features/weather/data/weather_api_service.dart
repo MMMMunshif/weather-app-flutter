@@ -47,9 +47,18 @@ class WeatherApiService {
     final double windSpeed = _toDouble(current['wind_speed_10m']);
     final int humidity = _toInt(current['relative_humidity_2m']);
 
+    final String currentTimeText = current['time'].toString();
+
+    final DateTime selectedLocationTime = _safeParseDateTime(
+      currentTimeText,
+      fallback: DateTime.now(),
+    );
+
+    final DateTime userDeviceTime = DateTime.now();
+
     final List<HourlyWeather> hourlyForecast = _buildHourlyForecast(
       hourly: hourly,
-      currentTime: current['time'].toString(),
+      currentTime: currentTimeText,
     );
 
     final List<DailyWeather> dailyForecast = _buildDailyForecast(daily);
@@ -57,6 +66,7 @@ class WeatherApiService {
     final double high = _toDouble(
       (daily['temperature_2m_max'] as List).first,
     );
+
     final double low = _toDouble(
       (daily['temperature_2m_min'] as List).first,
     );
@@ -64,8 +74,13 @@ class WeatherApiService {
     return WeatherLocation(
       city: city,
       country: country,
-      localTime: _formatTime(DateTime.now()),
-      userTime: _formatTime(DateTime.now()),
+
+      // Selected city/country local time.
+      localTime: _formatTime(selectedLocationTime),
+
+      // User device/browser time.
+      userTime: _formatTime(userDeviceTime),
+
       temperature: '${temperature.round()}°',
       condition: condition.name,
       windSpeed: '${windSpeed.round()} km/h',
@@ -196,7 +211,10 @@ class WeatherApiService {
   }
 
   String _dayLabel(String dateText) {
-    final date = DateTime.parse(dateText);
+    final date = _safeParseDateTime(
+      dateText,
+      fallback: DateTime.now(),
+    );
 
     switch (date.weekday) {
       case DateTime.monday:
@@ -219,21 +237,38 @@ class WeatherApiService {
   }
 
   String _hourLabel(String timeText) {
-    final date = DateTime.parse(timeText);
+    final date = _safeParseDateTime(
+      timeText,
+      fallback: DateTime.now(),
+    );
+
     return date.hour.toString().padLeft(2, '0');
   }
 
+
+
+  DateTime _safeParseDateTime(
+      String value, {
+        required DateTime fallback,
+      }) {
+    try {
+      return DateTime.parse(value);
+    } catch (_) {
+      return fallback;
+    }
+  }
+
   String _formatTime(DateTime time) {
-    final hour = time.hour > 12
+    final int displayHour = time.hour > 12
         ? time.hour - 12
         : time.hour == 0
         ? 12
         : time.hour;
 
-    final minute = time.minute.toString().padLeft(2, '0');
-    final period = time.hour >= 12 ? 'PM' : 'AM';
+    final String minute = time.minute.toString().padLeft(2, '0');
+    final String period = time.hour >= 12 ? 'PM' : 'AM';
 
-    return '$hour:$minute $period';
+    return '$displayHour:$minute $period';
   }
 
   int _toInt(dynamic value) {
@@ -245,7 +280,7 @@ class WeatherApiService {
   double _toDouble(dynamic value) {
     if (value is double) return value;
     if (value is int) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0;
+    return double.tryParse(value.toString()) ?? 0.0;
   }
 }
 

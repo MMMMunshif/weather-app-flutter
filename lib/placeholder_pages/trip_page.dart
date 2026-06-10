@@ -1,8 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../features/settings/cubit/app_settings_cubit.dart';
-import '../features/weather/data/sample_weather_data.dart';
 import '../features/weather/data/weather_api_service.dart';
 import '../features/weather/data/weather_search_service.dart';
 import '../features/weather/models/weather_location.dart';
@@ -16,91 +17,405 @@ class TripPage extends StatefulWidget {
 }
 
 class _TripPageState extends State<TripPage> {
-  final TextEditingController _searchController = TextEditingController();
-  final WeatherSearchService _searchService = WeatherSearchService();
-  final WeatherApiService _weatherApiService = WeatherApiService();
+  final TextEditingController searchController = TextEditingController();
 
-  List<SearchPlace> _searchResults = [];
-  List<WeatherLocation> _tripLocations = [
-    sampleLocations[1],
-    sampleLocations[0],
-  ];
+  final WeatherSearchService searchService = WeatherSearchService();
+  final WeatherApiService weatherApiService = WeatherApiService();
 
-  WeatherLocation? _selectedForecastLocation;
+  final FirebaseAuth firebaseAuth = FirebaseAuth.instance;
+  final FirebaseFirestore firestore = FirebaseFirestore.instance;
 
-  bool _isSearching = false;
-  bool _isAddingLocation = false;
-  String _searchText = '';
-  String? _searchError;
+  List<SearchPlace> searchResults = [];
+  List<WeatherLocation> tripLocations = [];
+  final Map<String, _TripLocationMeta> locationMeta = {};
 
-  DateTime _departureDate = DateTime(2025, 3, 21);
-  DateTime _returnDate = DateTime(2025, 3, 25);
+  WeatherLocation? selectedForecastLocation;
+
+  bool isLoadingTrip = true;
+  bool isSearching = false;
+  bool isAddingLocation = false;
+  bool isSavingTrip = false;
+  bool isDeletingTrip = false;
+
+  String searchText = '';
+  String? searchError;
+  bool hasUnsavedChanges = false;
+
+  late DateTime departureDate;
+  late DateTime returnDate;
 
   @override
   void initState() {
     super.initState();
-    _selectedForecastLocation = _tripLocations.first;
+
+    final today = _dateOnly(DateTime.now());
+    departureDate = today.add(const Duration(days: 7));
+    returnDate = today.add(const Duration(days: 11));
+
+    _loadTrip();
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    searchController.dispose();
     super.dispose();
   }
 
-  Future<void> _searchPlace(String value) async {
-    _searchText = value.trim();
+  DocumentReference<Map<String, dynamic>>? get _tripDoc {
+    final user = firebaseAuth.currentUser;
 
-    if (_searchText.length < 2) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-        _searchError = null;
-      });
-      return;
+    if (user == null) return null;
+
+    return firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('trips')
+        .doc('current_trip');
+  }
+
+  DateTime _dateOnly(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
+
+  String _locationKey(String city, String country) {
+    return '${city}_${country}'.toLowerCase().replaceAll(' ', '_');
+  }
+
+  String _weatherKey(WeatherLocation location) {
+    return _locationKey(location.city, location.country);
+  }
+
+  DateTime _readDate(dynamic value, DateTime fallback) {
+    if (value is Timestamp) return _dateOnly(value.toDate());
+    if (value is DateTime) return _dateOnly(value);
+    if (value is String) {
+      return _dateOnly(DateTime.tryParse(value) ?? fallback);
     }
 
+    return fallback;
+  }
+
+  Future<void> _loadTrip() async {
     setState(() {
-      _isSearching = true;
-      _searchError = null;
+      isLoadingTrip = true;
     });
 
     try {
-      final results = await _searchService.searchPlaces(_searchText);
+      final docRef = _tripDoc;
+
+      if (docRef == null) {
+        setState(() {
+          isLoadingTrip = false;
+        });
+        return;
+      }
+
+      final snapshot = await docRef.get();
+
+      if (!mounted) return;
+
+      if (!snapshot.exists || snapshot.data() == null) {
+        setState(() {
+          tripLocations = [];
+          locationMeta.clear();
+          selectedForecastLocation = null;
+          isLoadingTrip = false;
+          hasUnsavedChanges = false;
+        });
+        return;
+      }
+
+      final data = snapshot.data()!;
+      final today = _dateOnly(DateTime.now());
+
+      final List locationsData = data['locations'] as List? ?? [];
+
+      final List<WeatherLocation> loadedLocations = [];
+      final Map<String, _TripLocationMeta> loadedMeta = {};
+
+      for (final item in locationsData) {
+        final map = Map<String, dynamic>.from(item as Map);
+
+        final city = (map['city'] ?? '').toString();
+        final country = (map['country'] ?? '').toString();
+        final latitude = (map['latitude'] as num?)?.toDouble() ?? 0.0;
+        final longitude = (map['longitude'] as num?)?.toDouble() ?? 0.0;
+
+        if (city.isEmpty) continue;
+
+        final weather = await weatherApiService.getWeatherByCoordinates(
+          latitude: latitude,
+          longitude: longitude,
+          city: city,
+          country: country,
+        );
+
+        loadedLocations.add(weather);
+
+        loadedMeta[_locationKey(city, country)] = _TripLocationMeta(
+          city: city,
+          country: country,
+          latitude: latitude,
+          longitude: longitude,
+        );
+      }
 
       if (!mounted) return;
 
       setState(() {
-        _searchResults = results;
-        _isSearching = false;
+        departureDate = _readDate(
+          data['departureDate'],
+          today.add(const Duration(days: 7)),
+        );
+        returnDate = _readDate(
+          data['returnDate'],
+          today.add(const Duration(days: 11)),
+        );
+
+        if (returnDate.isBefore(departureDate)) {
+          returnDate = departureDate.add(const Duration(days: 1));
+        }
+
+        tripLocations = loadedLocations;
+        locationMeta
+          ..clear()
+          ..addAll(loadedMeta);
+
+        selectedForecastLocation =
+        tripLocations.isEmpty ? null : tripLocations.first;
+
+        isLoadingTrip = false;
+        hasUnsavedChanges = false;
       });
     } catch (error) {
       if (!mounted) return;
 
       setState(() {
-        _searchResults = [];
-        _isSearching = false;
-        _searchError = error.toString().replaceAll('Exception: ', '');
+        isLoadingTrip = false;
+      });
+
+      _showMessage(
+        error.toString().replaceAll('Exception: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _saveTrip() async {
+    if (tripLocations.isEmpty) {
+      _showMessage('Please add at least one destination.', isError: true);
+      return;
+    }
+
+    setState(() {
+      isSavingTrip = true;
+    });
+
+    try {
+      final docRef = _tripDoc;
+
+      if (docRef == null) {
+        throw Exception('Please login first.');
+      }
+
+      final locations = tripLocations.map((location) {
+        final meta = locationMeta[_weatherKey(location)];
+
+        return {
+          'city': location.city,
+          'country': location.country,
+          'latitude': meta?.latitude ?? 0.0,
+          'longitude': meta?.longitude ?? 0.0,
+          'temperature': location.temperature,
+          'condition': location.condition,
+          'windSpeed': location.windSpeed,
+          'humidity': location.humidity,
+        };
+      }).toList();
+
+      await docRef.set(
+        {
+          'title': 'My Weather Trip',
+          'departureDate': Timestamp.fromDate(departureDate),
+          'returnDate': Timestamp.fromDate(returnDate),
+          'locations': locations,
+          'locationCount': locations.length,
+          'selectedLocation': selectedForecastLocation == null
+              ? null
+              : {
+            'city': selectedForecastLocation!.city,
+            'country': selectedForecastLocation!.country,
+          },
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        isSavingTrip = false;
+        hasUnsavedChanges = false;
+      });
+
+      _showMessage('Trip saved successfully.');
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isSavingTrip = false;
+      });
+
+      _showMessage(
+        error.toString().replaceAll('Exception: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _clearTrip(_TripTheme theme) async {
+    if (tripLocations.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: theme.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Text(
+            'Clear Trip?',
+            style: TextStyle(
+              color: theme.text,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'Do you want to remove this trip plan?',
+            style: TextStyle(
+              color: theme.subText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: theme.subText,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text(
+                'Clear',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      isDeletingTrip = true;
+    });
+
+    try {
+      await _tripDoc?.delete();
+
+      if (!mounted) return;
+
+      final today = _dateOnly(DateTime.now());
+
+      setState(() {
+        tripLocations = [];
+        locationMeta.clear();
+        selectedForecastLocation = null;
+        departureDate = today.add(const Duration(days: 7));
+        returnDate = today.add(const Duration(days: 11));
+        isDeletingTrip = false;
+        hasUnsavedChanges = false;
+      });
+
+      _showMessage('Trip cleared.', isError: true);
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        isDeletingTrip = false;
+      });
+
+      _showMessage(
+        error.toString().replaceAll('Exception: ', ''),
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _searchPlace(String value) async {
+    searchText = value.trim();
+
+    if (searchText.length < 2) {
+      setState(() {
+        searchResults = [];
+        isSearching = false;
+        searchError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      isSearching = true;
+      searchError = null;
+    });
+
+    try {
+      final results = await searchService.searchPlaces(searchText);
+
+      if (!mounted) return;
+
+      setState(() {
+        searchResults = results;
+        isSearching = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        searchResults = [];
+        isSearching = false;
+        searchError = error.toString().replaceAll('Exception: ', '');
       });
     }
   }
 
   void _clearSearch() {
-    _searchController.clear();
+    searchController.clear();
 
     setState(() {
-      _searchText = '';
-      _searchResults = [];
-      _searchError = null;
-      _isSearching = false;
+      searchText = '';
+      searchResults = [];
+      searchError = null;
+      isSearching = false;
     });
   }
 
   Future<void> _addSearchPlace(SearchPlace place) async {
-    setState(() => _isAddingLocation = true);
+    setState(() {
+      isAddingLocation = true;
+    });
 
     try {
-      final weather = await _weatherApiService.getWeatherByCoordinates(
+      final weather = await weatherApiService.getWeatherByCoordinates(
         latitude: place.latitude,
         longitude: place.longitude,
         city: place.name,
@@ -109,75 +424,76 @@ class _TripPageState extends State<TripPage> {
 
       if (!mounted) return;
 
-      final alreadyAdded = _tripLocations.any(
-            (loc) =>
-        loc.city.toLowerCase() == weather.city.toLowerCase() &&
-            loc.country.toLowerCase() == weather.country.toLowerCase(),
-      );
+      final key = _weatherKey(weather);
+      final alreadyAdded = tripLocations.any((item) => _weatherKey(item) == key);
 
       setState(() {
         if (!alreadyAdded) {
-          _tripLocations.add(weather);
+          tripLocations.add(weather);
+          locationMeta[key] = _TripLocationMeta(
+            city: weather.city,
+            country: weather.country,
+            latitude: place.latitude,
+            longitude: place.longitude,
+          );
         }
 
-        _selectedForecastLocation = weather;
-        _isAddingLocation = false;
-        _searchController.clear();
-        _searchText = '';
-        _searchResults = [];
+        selectedForecastLocation = weather;
+        isAddingLocation = false;
+        hasUnsavedChanges = true;
+
+        searchController.clear();
+        searchText = '';
+        searchResults = [];
       });
     } catch (error) {
       if (!mounted) return;
 
-      setState(() => _isAddingLocation = false);
+      setState(() {
+        isAddingLocation = false;
+      });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          backgroundColor: const Color(0xFF1A2744),
-          content: Text(
-            error.toString().replaceAll('Exception: ', ''),
-            style: const TextStyle(color: Colors.white),
-          ),
-        ),
+      _showMessage(
+        error.toString().replaceAll('Exception: ', ''),
+        isError: true,
       );
     }
   }
 
   void _removeLocation(WeatherLocation location) {
     setState(() {
-      _tripLocations.remove(location);
+      tripLocations.removeWhere((item) => _weatherKey(item) == _weatherKey(location));
+      locationMeta.remove(_weatherKey(location));
 
-      if (_selectedForecastLocation == location) {
-        _selectedForecastLocation =
-        _tripLocations.isEmpty ? null : _tripLocations.first;
+      if (selectedForecastLocation != null &&
+          _weatherKey(selectedForecastLocation!) == _weatherKey(location)) {
+        selectedForecastLocation =
+        tripLocations.isEmpty ? null : tripLocations.first;
       }
+
+      hasUnsavedChanges = true;
     });
   }
 
   void _selectLocation(WeatherLocation location) {
-    setState(() => _selectedForecastLocation = location);
-  }
-
-  void _openDetail(WeatherLocation location) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => WeatherDetailPage(location: location),
-      ),
-    );
+    setState(() {
+      selectedForecastLocation = location;
+      hasUnsavedChanges = true;
+    });
   }
 
   Future<void> _pickDate({
     required bool isDeparture,
     required _TripTheme theme,
   }) async {
-    final initial = isDeparture ? _departureDate : _returnDate;
-    final first = isDeparture ? DateTime.now() : _departureDate;
-    final last = DateTime.now().add(const Duration(days: 365));
+    final today = _dateOnly(DateTime.now());
+    final initial = isDeparture ? departureDate : returnDate;
+    final first = isDeparture ? today : departureDate;
+    final last = today.add(const Duration(days: 365));
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial,
+      initialDate: initial.isBefore(first) ? first : initial,
       firstDate: first,
       lastDate: last,
       builder: (context, child) {
@@ -195,19 +511,41 @@ class _TripPageState extends State<TripPage> {
       },
     );
 
-    if (picked != null) {
-      setState(() {
-        if (isDeparture) {
-          _departureDate = picked;
+    if (picked == null) return;
 
-          if (_returnDate.isBefore(picked)) {
-            _returnDate = picked.add(const Duration(days: 1));
-          }
-        } else {
-          _returnDate = picked;
+    setState(() {
+      if (isDeparture) {
+        departureDate = _dateOnly(picked);
+
+        if (returnDate.isBefore(departureDate)) {
+          returnDate = departureDate.add(const Duration(days: 1));
         }
-      });
-    }
+      } else {
+        returnDate = _dateOnly(picked);
+      }
+
+      hasUnsavedChanges = true;
+    });
+  }
+
+  void _openDetail(WeatherLocation location) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WeatherDetailPage(location: location),
+      ),
+    );
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : Colors.green,
+      ),
+    );
   }
 
   @override
@@ -219,228 +557,141 @@ class _TripPageState extends State<TripPage> {
       backgroundColor: theme.background,
       body: Stack(
         children: [
-          _AmbientGlows(theme: theme),
           SafeArea(
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: _TopBar(
+            child: isLoadingTrip
+                ? Center(
+              child: CircularProgressIndicator(
+                color: theme.accent,
+              ),
+            )
+                : SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 18, 18, 120),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _TopBar(
                     theme: theme,
-                    onBack: () => Navigator.maybePop(context),
+                    hasUnsavedChanges: hasUnsavedChanges,
                   ),
-                ),
-
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
-                  sliver: SliverToBoxAdapter(
-                    child: _SearchRow(
+                  const SizedBox(height: 16),
+                  _SearchBox(
+                    theme: theme,
+                    controller: searchController,
+                    onChanged: _searchPlace,
+                    onClear: _clearSearch,
+                  ),
+                  if (searchText.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    _SearchPanel(
                       theme: theme,
-                      controller: _searchController,
-                      onChanged: _searchPlace,
-                      onClear: _clearSearch,
+                      isSearching: isSearching,
+                      searchError: searchError,
+                      searchResults: searchResults,
+                      onAdd: _addSearchPlace,
                     ),
-                  ),
-                ),
-
-                if (_searchText.isNotEmpty)
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 20),
-                    sliver: SliverToBoxAdapter(
-                      child: _buildSearchPanel(theme),
-                    ),
-                  )
-                else ...[
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
-                    sliver: SliverToBoxAdapter(
-                      child: _PlanSection(
-                        theme: theme,
-                        departureDate: _departureDate,
-                        returnDate: _returnDate,
-                        onPickDeparture: () {
-                          _pickDate(
-                            isDeparture: true,
-                            theme: theme,
-                          );
-                        },
-                        onPickReturn: () {
-                          _pickDate(
-                            isDeparture: false,
-                            theme: theme,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 14),
-                    sliver: SliverToBoxAdapter(
-                      child: _MapCard(
-                        theme: theme,
-                        locations: _tripLocations,
-                      ),
-                    ),
-                  ),
-
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
-                    sliver: SliverToBoxAdapter(
-                      child: _SectionLabel(
-                        theme: theme,
-                        text: 'Trip Locations (${_tripLocations.length})',
-                      ),
-                    ),
-                  ),
-
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                            (context, index) {
-                          final loc = _tripLocations[index];
-                          final isSelected = _selectedForecastLocation == loc;
-
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: _TripWeatherCard(
-                              theme: theme,
-                              location: loc,
-                              isSelected: isSelected,
-                              onTap: () {
-                                _selectLocation(loc);
-                                _openDetail(loc);
-                              },
-                              onSelect: () => _selectLocation(loc),
-                              onRemove: () => _removeLocation(loc),
-                            ),
-                          );
-                        },
-                        childCount: _tripLocations.length,
-                      ),
-                    ),
-                  ),
-
-                  if (_selectedForecastLocation != null)
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(18, 6, 18, 40),
-                      sliver: SliverToBoxAdapter(
-                        child: _ForecastCard(
+                  ] else ...[
+                    const SizedBox(height: 18),
+                    _PlanCard(
+                      theme: theme,
+                      departureDate: departureDate,
+                      returnDate: returnDate,
+                      isSaving: isSavingTrip,
+                      hasUnsavedChanges: hasUnsavedChanges,
+                      canSave: tripLocations.isNotEmpty,
+                      onPickDeparture: () {
+                        _pickDate(
+                          isDeparture: true,
                           theme: theme,
-                          location: _selectedForecastLocation!,
-                        ),
+                        );
+                      },
+                      onPickReturn: () {
+                        _pickDate(
+                          isDeparture: false,
+                          theme: theme,
+                        );
+                      },
+                      onSave: _saveTrip,
+                      onClear: () => _clearTrip(theme),
+                    ),
+                    const SizedBox(height: 18),
+                    _MapCard(
+                      theme: theme,
+                      locations: tripLocations,
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      'TRIP LOCATIONS (${tripLocations.length})',
+                      style: TextStyle(
+                        color: theme.accent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
                       ),
                     ),
+                    const SizedBox(height: 10),
+                    if (tripLocations.isEmpty)
+                      _EmptyTripCard(theme: theme)
+                    else
+                      ...tripLocations.map((location) {
+                        final isSelected =
+                            selectedForecastLocation != null &&
+                                _weatherKey(selectedForecastLocation!) ==
+                                    _weatherKey(location);
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _TripLocationCard(
+                            theme: theme,
+                            location: location,
+                            isSelected: isSelected,
+                            onTap: () {
+                              _selectLocation(location);
+                              _openDetail(location);
+                            },
+                            onSelect: () => _selectLocation(location),
+                            onRemove: () => _removeLocation(location),
+                          ),
+                        );
+                      }),
+                    if (selectedForecastLocation != null) ...[
+                      const SizedBox(height: 8),
+                      _ForecastCard(
+                        theme: theme,
+                        location: selectedForecastLocation!,
+                      ),
+                    ],
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-
-          if (_isAddingLocation)
+          if (isAddingLocation || isSavingTrip || isDeletingTrip)
             _LoadingOverlay(
               theme: theme,
+              text: isSavingTrip
+                  ? 'Saving trip...'
+                  : isDeletingTrip
+                  ? 'Clearing trip...'
+                  : 'Fetching weather...',
             ),
         ],
       ),
     );
   }
+}
 
-  Widget _buildSearchPanel(_TripTheme theme) {
-    if (_isSearching) {
-      return SizedBox(
-        height: 260,
-        child: Center(
-          child: CircularProgressIndicator(
-            color: theme.accent,
-            strokeWidth: 2.5,
-          ),
-        ),
-      );
-    }
+class _TripLocationMeta {
+  final String city;
+  final String country;
+  final double latitude;
+  final double longitude;
 
-    if (_searchError != null) {
-      return SizedBox(
-        height: 260,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.cloud_off_outlined,
-                color: theme.subText.withOpacity(0.7),
-                size: 40,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _searchError!,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: theme.subText,
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_searchResults.isEmpty) {
-      return SizedBox(
-        height: 260,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.travel_explore_rounded,
-                color: theme.subText.withOpacity(0.55),
-                size: 48,
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Search a city or country\nto add to your trip',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: theme.subText,
-                  fontSize: 14,
-                  height: 1.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            '${_searchResults.length} result${_searchResults.length == 1 ? '' : 's'} found',
-            style: TextStyle(
-              color: theme.subText,
-              fontSize: 12,
-            ),
-          ),
-        ),
-        ...List.generate(_searchResults.length, (index) {
-          final place = _searchResults[index];
-
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: _SearchResultTile(
-              theme: theme,
-              place: place,
-              onTap: () => _addSearchPlace(place),
-            ),
-          );
-        }),
-      ],
-    );
-  }
+  const _TripLocationMeta({
+    required this.city,
+    required this.country,
+    required this.latitude,
+    required this.longitude,
+  });
 }
 
 class _TripTheme {
@@ -451,69 +702,76 @@ class _TripTheme {
   bool get isDark => state.isDarkMode;
 
   Color get background => state.backgroundColor;
-
   Color get card => state.cardColor;
-
-  Color get cardSoft =>
-      isDark ? Colors.white.withOpacity(0.07) : Colors.white;
-
-  Color get border =>
-      isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFD8E1F0);
-
-  Color get selectedBg => state.accentColor.withOpacity(isDark ? 0.12 : 0.14);
-
-  Color get selectedBorder => state.accentColor.withOpacity(0.55);
-
+  Color get text => state.textColor;
+  Color get subText => state.subTextColor;
   Color get accent => state.accentColor;
 
-  Color get text => state.textColor;
-
-  Color get subText => state.subTextColor;
-
-  Color get muted =>
-      isDark ? Colors.white.withOpacity(0.35) : const Color(0xFF8B95A7);
-
+  Color get softCard => isDark ? Colors.white.withOpacity(0.07) : Colors.white;
+  Color get border =>
+      isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFD8E1F0);
   Color get searchBg =>
       isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFE8EEF8);
-
-  Color get mapBg => isDark ? const Color(0xFF0B1828) : const Color(0xFFEAF3FF);
-
   Color get pillBg =>
       isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFE8EEF8);
-
+  Color get mapBg => isDark ? const Color(0xFF0B1828) : const Color(0xFFEAF3FF);
   Color get overlayBg =>
-      isDark ? Colors.black.withOpacity(0.6) : Colors.black.withOpacity(0.25);
+      isDark ? Colors.black.withOpacity(0.60) : Colors.black.withOpacity(0.25);
 }
 
-class _AmbientGlows extends StatelessWidget {
+class _TopBar extends StatelessWidget {
   final _TripTheme theme;
+  final bool hasUnsavedChanges;
 
-  const _AmbientGlows({
+  const _TopBar({
     required this.theme,
+    required this.hasUnsavedChanges,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (!theme.isDark) {
-      return const SizedBox.shrink();
-    }
-
-    return Stack(
+    return Row(
       children: [
-        Positioned(
-          top: -100,
-          left: -80,
-          child: _Glow(
-            size: 300,
-            color: theme.accent.withOpacity(0.09),
+        Text(
+          'My Trip',
+          style: TextStyle(
+            color: theme.text,
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
           ),
         ),
-        Positioned(
-          bottom: 60,
-          right: -80,
-          child: _Glow(
-            size: 250,
-            color: theme.accent.withOpacity(0.08),
+        if (hasUnsavedChanges) ...[
+          const SizedBox(width: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'Unsaved',
+              style: TextStyle(
+                color: Colors.orange,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+        const Spacer(),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: theme.accent.withOpacity(0.15),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            '°C',
+            style: TextStyle(
+              color: theme.accent,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
       ],
@@ -521,108 +779,13 @@ class _AmbientGlows extends StatelessWidget {
   }
 }
 
-class _Glow extends StatelessWidget {
-  final double size;
-  final Color color;
-
-  const _Glow({
-    required this.size,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [
-            color,
-            Colors.transparent,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  final _TripTheme theme;
-  final VoidCallback onBack;
-
-  const _TopBar({
-    required this.theme,
-    required this.onBack,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onBack,
-            child: Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                color: theme.cardSoft,
-                border: Border.all(color: theme.border),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.chevron_left_rounded,
-                color: theme.text,
-                size: 20,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'My Trip',
-              style: TextStyle(
-                color: theme.text,
-                fontSize: 24,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: theme.accent.withOpacity(0.15),
-              border: Border.all(
-                color: theme.accent.withOpacity(0.35),
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              '°C',
-              style: TextStyle(
-                color: theme.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SearchRow extends StatelessWidget {
+class _SearchBox extends StatelessWidget {
   final _TripTheme theme;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   final VoidCallback onClear;
 
-  const _SearchRow({
+  const _SearchBox({
     required this.theme,
     required this.controller,
     required this.onChanged,
@@ -631,111 +794,200 @@ class _SearchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            decoration: BoxDecoration(
-              color: theme.searchBg,
-              border: Border.all(color: theme.border),
-              borderRadius: BorderRadius.circular(21),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.search_rounded,
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: theme.searchBg,
+        border: Border.all(color: theme.border),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.search_rounded,
+            color: theme.subText,
+            size: 18,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              onChanged: onChanged,
+              style: TextStyle(
+                color: theme.text,
+                fontSize: 14,
+              ),
+              cursorColor: theme.accent,
+              decoration: InputDecoration(
+                hintText: 'Search city or country...',
+                hintStyle: TextStyle(
                   color: theme.subText,
-                  size: 18,
+                  fontSize: 14,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    onChanged: onChanged,
-                    style: TextStyle(
-                      color: theme.text,
-                      fontSize: 13,
-                    ),
-                    cursorColor: theme.accent,
-                    decoration: InputDecoration(
-                      hintText: 'Search city or country...',
-                      hintStyle: TextStyle(
-                        color: theme.subText,
-                        fontSize: 13,
-                      ),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: onClear,
-                  child: Icon(
-                    Icons.close_rounded,
-                    color: theme.subText,
-                    size: 16,
-                  ),
-                ),
-              ],
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          'Edit',
-          style: TextStyle(
-            color: theme.accent,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
+          GestureDetector(
+            onTap: onClear,
+            child: Icon(
+              Icons.close_rounded,
+              color: theme.subText,
+              size: 17,
+            ),
           ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final _TripTheme theme;
-  final String text;
-
-  const _SectionLabel({
-    required this.theme,
-    required this.text,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text.toUpperCase(),
-      style: TextStyle(
-        color: theme.accent.withOpacity(0.85),
-        fontSize: 10,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 2,
+        ],
       ),
     );
   }
 }
 
-class _PlanSection extends StatelessWidget {
+class _SearchPanel extends StatelessWidget {
+  final _TripTheme theme;
+  final bool isSearching;
+  final String? searchError;
+  final List<SearchPlace> searchResults;
+  final ValueChanged<SearchPlace> onAdd;
+
+  const _SearchPanel({
+    required this.theme,
+    required this.isSearching,
+    required this.searchError,
+    required this.searchResults,
+    required this.onAdd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isSearching) {
+      return SizedBox(
+        height: 220,
+        child: Center(
+          child: CircularProgressIndicator(
+            color: theme.accent,
+          ),
+        ),
+      );
+    }
+
+    if (searchError != null) {
+      return SizedBox(
+        height: 220,
+        child: Center(
+          child: Text(
+            searchError!,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: theme.subText,
+              fontSize: 14,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (searchResults.isEmpty) {
+      return SizedBox(
+        height: 220,
+        child: Center(
+          child: Text(
+            'Search a city or country\nto add to your trip',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: theme.subText,
+              fontSize: 14,
+              height: 1.4,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: searchResults.map((place) {
+        return GestureDetector(
+          onTap: () => onAdd(place),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: theme.softCard,
+              border: Border.all(color: theme.border),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  place.isCountry
+                      ? Icons.flag_rounded
+                      : Icons.location_on_rounded,
+                  color: theme.accent,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    place.displayName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: theme.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                Container(
+                  height: 30,
+                  width: 30,
+                  decoration: BoxDecoration(
+                    color: theme.accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.add_rounded,
+                    color: theme.accent,
+                    size: 18,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _PlanCard extends StatelessWidget {
   final _TripTheme theme;
   final DateTime departureDate;
   final DateTime returnDate;
+  final bool isSaving;
+  final bool hasUnsavedChanges;
+  final bool canSave;
   final VoidCallback onPickDeparture;
   final VoidCallback onPickReturn;
+  final VoidCallback onSave;
+  final VoidCallback onClear;
 
-  const _PlanSection({
+  const _PlanCard({
     required this.theme,
     required this.departureDate,
     required this.returnDate,
+    required this.isSaving,
+    required this.hasUnsavedChanges,
+    required this.canSave,
     required this.onPickDeparture,
     required this.onPickReturn,
+    required this.onSave,
+    required this.onClear,
   });
 
-  String _fmt(DateTime date) {
+  String _formatDate(DateTime date) {
     const months = [
       'Jan',
       'Feb',
@@ -756,155 +1008,98 @@ class _PlanSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionLabel(
-          theme: theme,
-          text: 'Plan your trip',
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardSoft,
-            border: Border.all(color: theme.border),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Row(
+    final nights = returnDate.difference(departureDate).inDays;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.softCard,
+        border: Border.all(color: theme.border),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: theme.accent.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  Icons.flight_takeoff_rounded,
-                  color: theme.accent,
-                  size: 22,
+              Icon(
+                Icons.calendar_month_outlined,
+                color: theme.subText,
+                size: 17,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Trip Dates',
+                style: TextStyle(
+                  color: theme.subText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(width: 14),
+              const Spacer(),
+              Text(
+                '$nights nights',
+                style: TextStyle(
+                  color: theme.accent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Where do you want to go?',
-                      style: TextStyle(
-                        color: theme.text,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Search above to add cities and compare weather',
-                      style: TextStyle(
-                        color: theme.subText,
-                        fontSize: 11,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
+                child: _DateButton(
+                  theme: theme,
+                  label: 'DEPARTURE',
+                  value: _formatDate(departureDate),
+                  icon: Icons.flight_takeoff_rounded,
+                  onTap: onPickDeparture,
                 ),
               ),
               const SizedBox(width: 10),
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: theme.accent,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.add_rounded,
-                  color: Colors.white,
-                  size: 22,
+              Expanded(
+                child: _DateButton(
+                  theme: theme,
+                  label: 'RETURN',
+                  value: _formatDate(returnDate),
+                  icon: Icons.flight_land_rounded,
+                  onTap: onPickReturn,
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.cardSoft,
-            border: Border.all(color: theme.border),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          const SizedBox(height: 14),
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(
-                    Icons.calendar_month_outlined,
-                    color: theme.subText,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Trip Dates',
-                    style: TextStyle(
-                      color: theme.subText,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.accent.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '${returnDate.difference(departureDate).inDays} nights',
-                      style: TextStyle(
-                        color: theme.accent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
+              Expanded(
+                child: _ActionButton(
+                  label: isSaving
+                      ? 'Saving...'
+                      : hasUnsavedChanges
+                      ? 'Save Trip'
+                      : 'Saved',
+                  icon: Icons.save_rounded,
+                  backgroundColor: canSave ? theme.accent : theme.pillBg,
+                  textColor: canSave ? Colors.white : theme.subText,
+                  onTap: canSave && !isSaving ? onSave : null,
+                ),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _DateButton(
-                      theme: theme,
-                      label: 'DEPARTURE',
-                      value: _fmt(departureDate),
-                      icon: Icons.flight_takeoff_rounded,
-                      onTap: onPickDeparture,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _DateButton(
-                      theme: theme,
-                      label: 'RETURN',
-                      value: _fmt(returnDate),
-                      icon: Icons.flight_land_rounded,
-                      onTap: onPickReturn,
-                    ),
-                  ),
-                ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ActionButton(
+                  label: 'Clear Trip',
+                  icon: Icons.delete_outline_rounded,
+                  backgroundColor: Colors.redAccent.withOpacity(0.15),
+                  textColor: Colors.redAccent,
+                  onTap: onClear,
+                ),
               ),
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -929,12 +1124,9 @@ class _DateButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: theme.accent.withOpacity(0.10),
-          border: Border.all(
-            color: theme.accent.withOpacity(0.28),
-          ),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -952,15 +1144,16 @@ class _DateButton extends StatelessWidget {
                   Text(
                     label,
                     style: TextStyle(
-                      color: theme.accent.withOpacity(0.85),
+                      color: theme.accent,
                       fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: theme.text,
                       fontSize: 11,
@@ -971,6 +1164,58 @@ class _DateButton extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color textColor;
+  final VoidCallback? onTap;
+
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.textColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: onTap == null ? 0.55 : 1,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 42,
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                color: textColor,
+                size: 17,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  color: textColor,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -988,243 +1233,113 @@ class _MapCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionLabel(
-          theme: theme,
-          text: 'Route Map',
-        ),
-        const SizedBox(height: 10),
-        Container(
-          height: 210,
-          decoration: BoxDecoration(
-            color: theme.mapBg,
-            border: Border.all(color: theme.border),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                const height = 210.0;
+    final displayLocations = locations.take(4).toList();
 
-                const pins = [
-                  _PinData(
-                    label: 'Dallas',
-                    temp: '24°',
-                    left: 0.22,
-                    top: 0.28,
-                  ),
-                  _PinData(
-                    label: 'New York',
-                    temp: '18°',
-                    left: 0.65,
-                    top: 0.20,
-                  ),
-                  _PinData(
-                    label: 'L.A.',
-                    temp: '27°',
-                    left: 0.10,
-                    top: 0.62,
-                  ),
-                ];
-
-                return Stack(
-                  children: [
-                    CustomPaint(
-                      size: Size(width, height),
-                      painter: _GridPainter(
-                        color: theme.isDark
-                            ? Colors.white.withOpacity(0.04)
-                            : Colors.black.withOpacity(0.04),
-                      ),
-                    ),
-                    Positioned(
-                      left: -40,
-                      top: -40,
-                      child: Container(
-                        width: 200,
-                        height: 200,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              theme.accent.withOpacity(0.07),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Center(
-                      child: Icon(
-                        Icons.public_rounded,
-                        color: theme.isDark
-                            ? Colors.white.withOpacity(0.08)
-                            : Colors.black.withOpacity(0.08),
-                        size: 130,
-                      ),
-                    ),
-                    ...pins.map(
-                          (pin) => Positioned(
-                        left: width * pin.left,
-                        top: height * pin.top,
-                        child: _MapPinWidget(
-                          theme: theme,
-                          data: pin,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 14,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.isDark
-                              ? Colors.black.withOpacity(0.38)
-                              : Colors.white.withOpacity(0.75),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          'Map preview · Tap a pin for details',
-                          style: TextStyle(
-                            color: theme.subText,
-                            fontSize: 10,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              },
+    return Container(
+      height: 210,
+      decoration: BoxDecoration(
+        color: theme.mapBg,
+        border: Border.all(color: theme.border),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Stack(
+        children: [
+          Center(
+            child: Icon(
+              Icons.public_rounded,
+              color: theme.isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.black.withOpacity(0.08),
+              size: 130,
             ),
           ),
-        ),
-      ],
+          if (displayLocations.isEmpty)
+            Center(
+              child: Text(
+                'Add destinations to preview your route',
+                style: TextStyle(
+                  color: theme.subText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: displayLocations.map((location) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.softCard,
+                      border: Border.all(color: theme.accent.withOpacity(0.35)),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${location.city} ${location.temperature}',
+                      style: TextStyle(
+                        color: theme.text,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
 
-class _PinData {
-  final String label;
-  final String temp;
-  final double left;
-  final double top;
-
-  const _PinData({
-    required this.label,
-    required this.temp,
-    required this.left,
-    required this.top,
-  });
-}
-
-class _MapPinWidget extends StatelessWidget {
+class _EmptyTripCard extends StatelessWidget {
   final _TripTheme theme;
-  final _PinData data;
 
-  const _MapPinWidget({
+  const _EmptyTripCard({
     required this.theme,
-    required this.data,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-          decoration: BoxDecoration(
-            color: theme.isDark
-                ? const Color(0xCC0D1B35)
-                : Colors.white.withOpacity(0.9),
-            border: Border.all(
-              color: theme.accent.withOpacity(0.45),
-            ),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            data.label,
-            style: TextStyle(
-              color: theme.text,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        const SizedBox(height: 2),
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.softCard,
+        border: Border.all(color: theme.border),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.add_location_alt_rounded,
             color: theme.accent,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white.withOpacity(0.8),
-              width: 1.5,
+            size: 28,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Search and add cities to create your trip plan.',
+              style: TextStyle(
+                color: theme.subText,
+                fontSize: 13,
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          data.temp,
-          style: TextStyle(
-            color: theme.accent,
-            fontSize: 10,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _GridPainter extends CustomPainter {
-  final Color color;
-
-  _GridPainter({
-    required this.color,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 0.5;
-
-    const step = 28.0;
-
-    for (double x = 0; x <= size.width; x += step) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        paint,
-      );
-    }
-
-    for (double y = 0; y <= size.height; y += step) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_GridPainter oldDelegate) {
-    return oldDelegate.color != color;
-  }
-}
-
-class _TripWeatherCard extends StatelessWidget {
+class _TripLocationCard extends StatelessWidget {
   final _TripTheme theme;
   final WeatherLocation location;
   final bool isSelected;
@@ -1232,7 +1347,7 @@ class _TripWeatherCard extends StatelessWidget {
   final VoidCallback onSelect;
   final VoidCallback onRemove;
 
-  const _TripWeatherCard({
+  const _TripLocationCard({
     required this.theme,
     required this.location,
     required this.isSelected,
@@ -1243,16 +1358,18 @@ class _TripWeatherCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final title = location.country.isEmpty
+        ? location.city
+        : '${location.city}, ${location.country}';
+
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.all(16),
+      child: Container(
+        padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: isSelected ? theme.selectedBg : theme.cardSoft,
+          color: isSelected ? theme.accent.withOpacity(0.12) : theme.softCard,
           border: Border.all(
-            color: isSelected ? theme.selectedBorder : theme.border,
-            width: isSelected ? 1.4 : 1,
+            color: isSelected ? theme.accent.withOpacity(0.55) : theme.border,
           ),
           borderRadius: BorderRadius.circular(16),
         ),
@@ -1263,30 +1380,30 @@ class _TripWeatherCard extends StatelessWidget {
                 Icon(
                   location.icon,
                   color: location.iconColor,
-                  size: 44,
+                  size: 42,
                 ),
                 const SizedBox(width: 12),
                 Text(
                   location.temperature,
                   style: TextStyle(
                     color: theme.text,
-                    fontSize: 36,
+                    fontSize: 34,
                     fontWeight: FontWeight.w300,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '${location.city}, ${location.country}',
+                        title,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: theme.text,
                           fontSize: 14,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -1304,44 +1421,21 @@ class _TripWeatherCard extends StatelessWidget {
                   children: [
                     GestureDetector(
                       onTap: onRemove,
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: theme.pillBg,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.close_rounded,
-                          color: theme.subText,
-                          size: 16,
-                        ),
+                      child: Icon(
+                        Icons.close_rounded,
+                        color: theme.subText,
+                        size: 20,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 10),
                     GestureDetector(
                       onTap: onSelect,
-                      child: Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? theme.accent.withOpacity(0.2)
-                              : theme.pillBg,
-                          borderRadius: BorderRadius.circular(8),
-                          border: isSelected
-                              ? Border.all(
-                            color: theme.accent.withOpacity(0.5),
-                          )
-                              : null,
-                        ),
-                        child: Icon(
-                          isSelected
-                              ? Icons.check_rounded
-                              : Icons.radio_button_unchecked_rounded,
-                          color: isSelected ? theme.accent : theme.subText,
-                          size: 16,
-                        ),
+                      child: Icon(
+                        isSelected
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked_rounded,
+                        color: isSelected ? theme.accent : theme.subText,
+                        size: 20,
                       ),
                     ),
                   ],
@@ -1362,27 +1456,6 @@ class _TripWeatherCard extends StatelessWidget {
                   icon: Icons.water_drop_outlined,
                   text: 'Humidity ${location.humidity}',
                 ),
-                if (isSelected) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: theme.accent.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'Forecast ↓',
-                      style: TextStyle(
-                        color: theme.accent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ],
@@ -1405,30 +1478,34 @@ class _InfoPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: theme.pillBg,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            color: theme.subText,
-            size: 12,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
+    return Flexible(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: theme.pillBg,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
               color: theme.subText,
-              fontSize: 10,
-              fontWeight: FontWeight.w500,
+              size: 12,
             ),
-          ),
-        ],
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                text,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: theme.subText,
+                  fontSize: 10,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1446,32 +1523,23 @@ class _ForecastCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: theme.cardSoft,
+        color: theme.softCard,
         border: Border.all(color: theme.border),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.calendar_today_outlined,
-                color: theme.subText,
-                size: 14,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '5-Day Forecast · ${location.city}',
-                style: TextStyle(
-                  color: theme.subText,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+          Text(
+            '5-Day Forecast · ${location.city}',
+            style: TextStyle(
+              color: theme.subText,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           const SizedBox(height: 14),
           Row(
@@ -1484,8 +1552,7 @@ class _ForecastCard extends StatelessWidget {
                       style: TextStyle(
                         color: theme.subText,
                         fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1522,96 +1589,13 @@ class _ForecastCard extends StatelessWidget {
   }
 }
 
-class _SearchResultTile extends StatelessWidget {
-  final _TripTheme theme;
-  final SearchPlace place;
-  final VoidCallback onTap;
-
-  const _SearchResultTile({
-    required this.theme,
-    required this.place,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: theme.cardSoft,
-          border: Border.all(color: theme.border),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: theme.accent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                place.isCountry
-                    ? Icons.flag_rounded
-                    : Icons.location_on_rounded,
-                color: theme.accent,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    place.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: theme.text,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (place.country.isNotEmpty)
-                    Text(
-                      place.country,
-                      style: TextStyle(
-                        color: theme.subText,
-                        fontSize: 11,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: theme.accent.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.add_rounded,
-                color: theme.accent,
-                size: 18,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _LoadingOverlay extends StatelessWidget {
   final _TripTheme theme;
+  final String text;
 
   const _LoadingOverlay({
     required this.theme,
+    required this.text,
   });
 
   @override
@@ -1620,26 +1604,24 @@ class _LoadingOverlay extends StatelessWidget {
       color: theme.overlayBg,
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
           decoration: BoxDecoration(
             color: theme.card,
-            border: Border.all(color: theme.border),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               CircularProgressIndicator(
                 color: theme.accent,
-                strokeWidth: 2.5,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               Text(
-                'Fetching weather...',
+                text,
                 style: TextStyle(
                   color: theme.text,
                   fontSize: 14,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],
