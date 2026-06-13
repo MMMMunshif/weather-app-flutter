@@ -26,6 +26,7 @@ class WeatherDetailPage extends StatelessWidget {
             children: [
               _TopBar(
                 onBack: () => Navigator.pop(context),
+                unitLabel: settingsState.temperatureSymbol,
                 badgeColor: settingsState.isDarkMode
                     ? const Color(0xFF4B4B4B)
                     : const Color(0xFFE3ECF8),
@@ -38,7 +39,9 @@ class WeatherDetailPage extends StatelessWidget {
 
               Center(
                 child: Text(
-                  location.city,
+                  location.country.isEmpty
+                      ? location.city
+                      : '${location.city}, ${location.country}',
                   textAlign: TextAlign.center,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -63,6 +66,7 @@ class WeatherDetailPage extends StatelessWidget {
 
               _MainWeatherCard(
                 location: location,
+                settingsState: settingsState,
                 cardColor: settingsState.cardColor,
                 textColor: settingsState.textColor,
                 subTextColor: settingsState.subTextColor,
@@ -83,6 +87,7 @@ class WeatherDetailPage extends StatelessWidget {
 
               _HourlyForecast(
                 location: location,
+                settingsState: settingsState,
                 cardColor: settingsState.cardColor,
                 textColor: settingsState.textColor,
                 subTextColor: settingsState.subTextColor,
@@ -120,11 +125,13 @@ class WeatherDetailPage extends StatelessWidget {
 
 class _TopBar extends StatelessWidget {
   final VoidCallback onBack;
+  final String unitLabel;
   final Color badgeColor;
   final Color badgeTextColor;
 
   const _TopBar({
     required this.onBack,
+    required this.unitLabel,
     required this.badgeColor,
     required this.badgeTextColor,
   });
@@ -151,7 +158,7 @@ class _TopBar extends StatelessWidget {
           ),
           alignment: Alignment.center,
           child: Text(
-            '°C',
+            unitLabel,
             style: TextStyle(
               color: badgeTextColor,
               fontSize: 11,
@@ -254,12 +261,14 @@ class _TimeInfo extends StatelessWidget {
 
 class _MainWeatherCard extends StatelessWidget {
   final WeatherLocation location;
+  final AppSettingsState settingsState;
   final Color cardColor;
   final Color textColor;
   final Color subTextColor;
 
   const _MainWeatherCard({
     required this.location,
+    required this.settingsState,
     required this.cardColor,
     required this.textColor,
     required this.subTextColor,
@@ -267,6 +276,14 @@ class _MainWeatherCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String temperatureText =
+    settingsState.formatTemperature(location.temperature);
+    final String feelsLikeText =
+    settingsState.formatTemperature(location.feelsLike);
+    final String highText = settingsState.formatTemperature(location.high);
+    final String lowText = settingsState.formatTemperature(location.low);
+    final String windText = settingsState.formatWindSpeed(location.windSpeed);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
@@ -281,15 +298,13 @@ class _MainWeatherCard extends StatelessWidget {
             color: location.iconColor,
             size: 72,
           ),
-
           const SizedBox(width: 16),
-
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  location.temperature,
+                  temperatureText,
                   style: TextStyle(
                     color: textColor,
                     fontSize: 54,
@@ -301,7 +316,7 @@ class _MainWeatherCard extends StatelessWidget {
                 const SizedBox(height: 6),
 
                 Text(
-                  'Feels Like ${location.feelsLike}',
+                  'Feels Like $feelsLikeText',
                   style: TextStyle(
                     color: textColor,
                     fontSize: 14,
@@ -311,7 +326,7 @@ class _MainWeatherCard extends StatelessWidget {
                 const SizedBox(height: 6),
 
                 Text(
-                  'H: ${location.high}     L: ${location.low}',
+                  'H: $highText     L: $lowText',
                   style: TextStyle(
                     color: textColor,
                     fontSize: 13,
@@ -326,7 +341,7 @@ class _MainWeatherCard extends StatelessWidget {
                   runSpacing: 6,
                   children: [
                     Text(
-                      'Wind  ${location.windSpeed}',
+                      'Wind  $windText',
                       style: TextStyle(
                         color: textColor,
                         fontSize: 13,
@@ -341,6 +356,19 @@ class _MainWeatherCard extends StatelessWidget {
                     ),
                   ],
                 ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  location.condition,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: subTextColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ],
             ),
           ),
@@ -352,12 +380,14 @@ class _MainWeatherCard extends StatelessWidget {
 
 class _HourlyForecast extends StatelessWidget {
   final WeatherLocation location;
+  final AppSettingsState settingsState;
   final Color cardColor;
   final Color textColor;
   final Color subTextColor;
 
   const _HourlyForecast({
     required this.location,
+    required this.settingsState,
     required this.cardColor,
     required this.textColor,
     required this.subTextColor,
@@ -392,7 +422,7 @@ class _HourlyForecast extends StatelessWidget {
                   size: 24,
                 ),
                 Text(
-                  hour.temperature,
+                  settingsState.formatTemperature(hour.temperature),
                   style: TextStyle(
                     color: textColor,
                     fontSize: 13,

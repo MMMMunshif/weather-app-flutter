@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:http/http.dart' as http;
 
 import '../features/settings/cubit/app_settings_cubit.dart';
 import '../features/weather/data/weather_api_service.dart';
@@ -19,7 +22,6 @@ class TripPage extends StatefulWidget {
 class _TripPageState extends State<TripPage> {
   final TextEditingController searchController = TextEditingController();
 
-  final WeatherSearchService searchService = WeatherSearchService();
   final WeatherApiService weatherApiService = WeatherApiService();
 
   final FirebaseAuth firebaseAuth = FirebaseAuth.instance;
@@ -78,7 +80,7 @@ class _TripPageState extends State<TripPage> {
   }
 
   String _locationKey(String city, String country) {
-    return '${city}_${country}'.toLowerCase().replaceAll(' ', '_');
+    return '${city}_$country'.toLowerCase().replaceAll(' ', '_');
   }
 
   String _weatherKey(WeatherLocation location) {
@@ -93,6 +95,56 @@ class _TripPageState extends State<TripPage> {
     }
 
     return fallback;
+  }
+
+  Future<List<SearchPlace>> _searchPlacesFromOpenMeteo(String query) async {
+    final cleanQuery = query.trim();
+
+    if (cleanQuery.length < 2) {
+      return [];
+    }
+
+    final uri = Uri.https(
+      'geocoding-api.open-meteo.com',
+      '/v1/search',
+      {
+        'name': cleanQuery,
+        'count': '15',
+        'language': 'en',
+        'format': 'json',
+      },
+    );
+
+    final response = await http.get(uri);
+
+    if (response.statusCode != 200) {
+      throw Exception('Location search failed. Please try again.');
+    }
+
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final List results = decoded['results'] as List? ?? [];
+
+    return results.map((item) {
+      final map = Map<String, dynamic>.from(item as Map);
+
+      final name = (map['name'] ?? '').toString();
+      final country = (map['country'] ?? '').toString();
+      final latitude = (map['latitude'] as num?)?.toDouble() ?? 0.0;
+      final longitude = (map['longitude'] as num?)?.toDouble() ?? 0.0;
+      final featureCode = (map['feature_code'] ?? '').toString();
+
+      return SearchPlace(
+        name: name,
+        country: country,
+        latitude: latitude,
+        longitude: longitude,
+        isCountry: featureCode.startsWith('PCLI'),
+      );
+    }).where((place) {
+      return place.name.isNotEmpty &&
+          place.latitude != 0.0 &&
+          place.longitude != 0.0;
+    }).toList();
   }
 
   Future<void> _loadTrip() async {
@@ -379,7 +431,7 @@ class _TripPageState extends State<TripPage> {
     });
 
     try {
-      final results = await searchService.searchPlaces(searchText);
+      final results = await _searchPlacesFromOpenMeteo(searchText);
 
       if (!mounted) return;
 
@@ -387,13 +439,14 @@ class _TripPageState extends State<TripPage> {
         searchResults = results;
         isSearching = false;
       });
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
 
       setState(() {
         searchResults = [];
         isSearching = false;
-        searchError = error.toString().replaceAll('Exception: ', '');
+        searchError =
+        'Unable to search location. Please check your internet connection.';
       });
     }
   }
@@ -410,6 +463,8 @@ class _TripPageState extends State<TripPage> {
   }
 
   Future<void> _addSearchPlace(SearchPlace place) async {
+    FocusScope.of(context).unfocus();
+
     setState(() {
       isAddingLocation = true;
     });
@@ -462,7 +517,9 @@ class _TripPageState extends State<TripPage> {
 
   void _removeLocation(WeatherLocation location) {
     setState(() {
-      tripLocations.removeWhere((item) => _weatherKey(item) == _weatherKey(location));
+      tripLocations.removeWhere(
+            (item) => _weatherKey(item) == _weatherKey(location),
+      );
       locationMeta.remove(_weatherKey(location));
 
       if (selectedForecastLocation != null &&
@@ -486,16 +543,28 @@ class _TripPageState extends State<TripPage> {
     required bool isDeparture,
     required _TripTheme theme,
   }) async {
+    FocusScope.of(context).unfocus();
+
     final today = _dateOnly(DateTime.now());
-    final initial = isDeparture ? departureDate : returnDate;
-    final first = isDeparture ? today : departureDate;
-    final last = today.add(const Duration(days: 365));
+    final firstDate = isDeparture ? today : departureDate;
+    final lastDate = today.add(const Duration(days: 365));
+
+    DateTime initialDate = isDeparture ? departureDate : returnDate;
+
+    if (initialDate.isBefore(firstDate)) {
+      initialDate = firstDate;
+    }
+
+    if (initialDate.isAfter(lastDate)) {
+      initialDate = lastDate;
+    }
 
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial.isBefore(first) ? first : initial,
-      firstDate: first,
-      lastDate: last,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      barrierDismissible: true,
       builder: (context, child) {
         return Theme(
           data: ThemeData(
@@ -707,16 +776,33 @@ class _TripTheme {
   Color get subText => state.subTextColor;
   Color get accent => state.accentColor;
 
-  Color get softCard => isDark ? Colors.white.withOpacity(0.07) : Colors.white;
+  String get temperatureSymbol => state.temperatureSymbol;
+
+  String formatTemperature(String value) {
+    return state.formatTemperature(value);
+  }
+
+  String formatWindSpeed(String value) {
+    return state.formatWindSpeed(value);
+  }
+
+  Color get softCard =>
+      isDark ? Colors.white.withValues(alpha: 0.07) : Colors.white;
+
   Color get border =>
-      isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFD8E1F0);
+      isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFD8E1F0);
+
   Color get searchBg =>
-      isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFE8EEF8);
+      isDark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFE8EEF8);
+
   Color get pillBg =>
-      isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFE8EEF8);
+      isDark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFE8EEF8);
+
   Color get mapBg => isDark ? const Color(0xFF0B1828) : const Color(0xFFEAF3FF);
-  Color get overlayBg =>
-      isDark ? Colors.black.withOpacity(0.60) : Colors.black.withOpacity(0.25);
+
+  Color get overlayBg => isDark
+      ? Colors.black.withValues(alpha: 0.60)
+      : Colors.black.withValues(alpha: 0.25);
 }
 
 class _TopBar extends StatelessWidget {
@@ -745,7 +831,7 @@ class _TopBar extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.15),
+              color: Colors.orange.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Text(
@@ -762,11 +848,11 @@ class _TopBar extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: theme.accent.withOpacity(0.15),
+            color: theme.accent.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
-            '°C',
+            theme.temperatureSymbol,
             style: TextStyle(
               color: theme.accent,
               fontSize: 12,
@@ -944,7 +1030,7 @@ class _SearchPanel extends StatelessWidget {
                   height: 30,
                   width: 30,
                   decoration: BoxDecoration(
-                    color: theme.accent.withOpacity(0.15),
+                    color: theme.accent.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
@@ -1091,7 +1177,7 @@ class _PlanCard extends StatelessWidget {
                 child: _ActionButton(
                   label: 'Clear Trip',
                   icon: Icons.delete_outline_rounded,
-                  backgroundColor: Colors.redAccent.withOpacity(0.15),
+                  backgroundColor: Colors.redAccent.withValues(alpha: 0.15),
                   textColor: Colors.redAccent,
                   onTap: onClear,
                 ),
@@ -1121,49 +1207,53 @@ class _DateButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: theme.accent.withOpacity(0.10),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: theme.accent,
-              size: 16,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: theme.accent,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: theme.text,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Ink(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: theme.accent.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                color: theme.accent,
+                size: 16,
               ),
-            ),
-          ],
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        color: theme.accent,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: theme.text,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1248,8 +1338,8 @@ class _MapCard extends StatelessWidget {
             child: Icon(
               Icons.public_rounded,
               color: theme.isDark
-                  ? Colors.white.withOpacity(0.08)
-                  : Colors.black.withOpacity(0.08),
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.08),
               size: 130,
             ),
           ),
@@ -1278,11 +1368,13 @@ class _MapCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: theme.softCard,
-                      border: Border.all(color: theme.accent.withOpacity(0.35)),
+                      border: Border.all(
+                        color: theme.accent.withValues(alpha: 0.35),
+                      ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '${location.city} ${location.temperature}',
+                      '${location.city} ${theme.formatTemperature(location.temperature)}',
                       style: TextStyle(
                         color: theme.text,
                         fontSize: 11,
@@ -1362,14 +1454,18 @@ class _TripLocationCard extends StatelessWidget {
         ? location.city
         : '${location.city}, ${location.country}';
 
+    final temperatureText = theme.formatTemperature(location.temperature);
+    final windText = theme.formatWindSpeed(location.windSpeed);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: isSelected ? theme.accent.withOpacity(0.12) : theme.softCard,
+          color: isSelected ? theme.accent.withValues(alpha: 0.12) : theme.softCard,
           border: Border.all(
-            color: isSelected ? theme.accent.withOpacity(0.55) : theme.border,
+            color:
+            isSelected ? theme.accent.withValues(alpha: 0.55) : theme.border,
           ),
           borderRadius: BorderRadius.circular(16),
         ),
@@ -1384,7 +1480,7 @@ class _TripLocationCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  location.temperature,
+                  temperatureText,
                   style: TextStyle(
                     color: theme.text,
                     fontSize: 34,
@@ -1409,6 +1505,8 @@ class _TripLocationCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         location.condition,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: theme.subText,
                           fontSize: 12,
@@ -1448,7 +1546,7 @@ class _TripLocationCard extends StatelessWidget {
                 _InfoPill(
                   theme: theme,
                   icon: Icons.air_outlined,
-                  text: 'Wind ${location.windSpeed}',
+                  text: 'Wind $windText',
                 ),
                 const SizedBox(width: 8),
                 _InfoPill(
@@ -1563,7 +1661,7 @@ class _ForecastCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      item.high,
+                      theme.formatTemperature(item.high),
                       style: TextStyle(
                         color: theme.text,
                         fontSize: 12,
@@ -1572,7 +1670,7 @@ class _ForecastCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      item.low,
+                      theme.formatTemperature(item.low),
                       style: TextStyle(
                         color: theme.subText,
                         fontSize: 11,
