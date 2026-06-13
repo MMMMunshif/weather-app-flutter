@@ -8,32 +8,34 @@ import '../features/weather/data/weather_search_service.dart';
 
 // ─────────────────────────────────────────────────────────────
 // DATA MODEL
+// Base temperature values are stored in Fahrenheit.
+// UI converts them to Celsius/Fahrenheit based on Settings.
 // ─────────────────────────────────────────────────────────────
 
 class ForecastData {
   final String period;
-  final String avgHigh;
-  final String avgLow;
+  final int avgHighF;
+  final int avgLowF;
   final String avgRain;
-  final List<int> highTemps;
-  final List<int> lowTemps;
+  final List<int> highTempsF;
+  final List<int> lowTempsF;
   final List<double> rainValues;
   final List<String> weekLabels;
 
   const ForecastData({
     required this.period,
-    required this.avgHigh,
-    required this.avgLow,
+    required this.avgHighF,
+    required this.avgLowF,
     required this.avgRain,
-    required this.highTemps,
-    required this.lowTemps,
+    required this.highTempsF,
+    required this.lowTempsF,
     required this.rainValues,
     required this.weekLabels,
   });
 }
 
 // ─────────────────────────────────────────────────────────────
-// DYNAMIC THEME
+// DYNAMIC THEME + UNIT FORMATTER
 // ─────────────────────────────────────────────────────────────
 
 class _ForecastTheme {
@@ -44,14 +46,13 @@ class _ForecastTheme {
   bool get isDark => state.isDarkMode;
 
   Color get bg => state.backgroundColor;
-
   Color get surface => isDark ? const Color(0xFF0C1526) : Colors.white;
-
   Color get surfaceHi =>
       isDark ? const Color(0xFF111D33) : const Color(0xFFE8EEF8);
 
-  Color get glass =>
-      isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.85);
+  Color get glass => isDark
+      ? Colors.white.withValues(alpha: 0.08)
+      : Colors.white.withValues(alpha: 0.85);
 
   Color get border =>
       isDark ? const Color(0xFF1C2D4A) : const Color(0xFFD8E1F0);
@@ -60,33 +61,45 @@ class _ForecastTheme {
       isDark ? const Color(0xFF26406A) : const Color(0xFFB7C6DE);
 
   Color get sky => state.accentColor;
-
-  Color get skyDim => state.accentColor.withOpacity(0.25);
-
-  Color get skyGlow => state.accentColor.withOpacity(0.12);
+  Color get skyDim => state.accentColor.withValues(alpha: 0.25);
+  Color get skyGlow => state.accentColor.withValues(alpha: 0.12);
 
   Color get amber => const Color(0xFFFFAA2E);
-
-  Color get amberDim => const Color(0x40FFAA2E);
-
   Color get amberGlow => const Color(0x18FFAA2E);
 
   Color get rain => const Color(0xFF5B9BFF);
-
   Color get rainDim => const Color(0x405B9BFF);
 
   Color get textPrimary => state.textColor;
-
   Color get textSecond => state.subTextColor;
 
   Color get textMuted =>
       isDark ? const Color(0xFF3D5070) : const Color(0xFF8A98AA);
 
-  Color get grid =>
-      isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.06);
-
   Color get selectedTabText =>
       isDark ? const Color(0xFF050B18) : Colors.white;
+
+  String get temperatureSymbol => state.temperatureSymbol;
+
+  bool get isFahrenheit {
+    return temperatureSymbol.toUpperCase().contains('F');
+  }
+
+  int convertTempFromF(num fahrenheit) {
+    if (isFahrenheit) {
+      return fahrenheit.round();
+    }
+
+    return ((fahrenheit - 32) * 5 / 9).round();
+  }
+
+  String formatTempFromF(num fahrenheit) {
+    return '${convertTempFromF(fahrenheit)}°';
+  }
+
+  String get fullTemperatureUnit {
+    return isFahrenheit ? 'Fahrenheit' : 'Celsius';
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -117,31 +130,31 @@ class _ForecastPageState extends State<ForecastPage>
   static const _datasets = [
     ForecastData(
       period: 'March 18 — April 18, 2025',
-      avgHigh: '70°',
-      avgLow: '52°',
+      avgHighF: 70,
+      avgLowF: 52,
       avgRain: '3.2"',
-      highTemps: [70, 72, 75, 76, 80],
-      lowTemps: [51, 53, 53, 57, 61],
+      highTempsF: [70, 72, 75, 76, 80],
+      lowTempsF: [51, 53, 53, 57, 61],
       rainValues: [0.5, 0.4, 0.4, 0.2, 0.1],
       weekLabels: ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5'],
     ),
     ForecastData(
       period: 'March — May 2025',
-      avgHigh: '74°',
-      avgLow: '56°',
+      avgHighF: 74,
+      avgLowF: 56,
       avgRain: '7.8"',
-      highTemps: [72, 75, 78, 81, 83],
-      lowTemps: [53, 56, 58, 61, 64],
+      highTempsF: [72, 75, 78, 81, 83],
+      lowTempsF: [53, 56, 58, 61, 64],
       rainValues: [1.2, 1.5, 1.8, 1.7, 1.6],
       weekLabels: ['Mar', 'Apr', 'May', 'Jun', 'Jul'],
     ),
     ForecastData(
       period: 'March — August 2025',
-      avgHigh: '78°',
-      avgLow: '60°',
+      avgHighF: 78,
+      avgLowF: 60,
       avgRain: '12.4"',
-      highTemps: [74, 78, 82, 85, 88],
-      lowTemps: [56, 60, 64, 67, 70],
+      highTempsF: [74, 78, 82, 85, 88],
+      lowTempsF: [56, 60, 64, 67, 70],
       rainValues: [2.0, 2.3, 2.6, 2.8, 2.7],
       weekLabels: ['Mar', 'Apr', 'May', 'Jun', 'Aug'],
     ),
@@ -217,7 +230,7 @@ class _ForecastPageState extends State<ForecastPage>
               top: -120,
               left: -80,
               child: _GlowBlob(
-                color: theme.sky.withOpacity(0.07),
+                color: theme.sky.withValues(alpha: 0.07),
                 size: 380,
               ),
             ),
@@ -225,7 +238,7 @@ class _ForecastPageState extends State<ForecastPage>
               top: 260,
               right: -100,
               child: _GlowBlob(
-                color: theme.amber.withOpacity(0.05),
+                color: theme.amber.withValues(alpha: 0.05),
                 size: 300,
               ),
             ),
@@ -340,7 +353,11 @@ class _Header extends StatelessWidget {
         _IconBtn(
           theme: theme,
           icon: Icons.arrow_back_ios_new_rounded,
-          onTap: () {},
+          onTap: () {
+            if (Navigator.canPop(context)) {
+              Navigator.pop(context);
+            }
+          },
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -425,7 +442,7 @@ class _UnitBadge extends StatelessWidget {
         border: Border.all(color: theme.skyDim),
       ),
       child: Text(
-        '°F',
+        theme.temperatureSymbol,
         style: TextStyle(
           color: theme.sky,
           fontSize: 14,
@@ -466,7 +483,7 @@ class _LocationPill extends StatelessWidget {
         border: Border.all(color: theme.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(theme.isDark ? 0.0 : 0.06),
+            color: Colors.black.withValues(alpha: theme.isDark ? 0.0 : 0.06),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -584,7 +601,7 @@ class _TabBar extends StatelessWidget {
                   boxShadow: isOn
                       ? [
                     BoxShadow(
-                      color: theme.sky.withOpacity(0.35),
+                      color: theme.sky.withValues(alpha: 0.35),
                       blurRadius: 12,
                       offset: const Offset(0, 3),
                     ),
@@ -672,7 +689,7 @@ class _StatsRow extends StatelessWidget {
           child: _StatCard(
             theme: theme,
             label: 'AVG HIGH',
-            value: data.avgHigh,
+            value: theme.formatTempFromF(data.avgHighF),
             color: theme.amber,
             icon: Icons.wb_sunny_rounded,
             glow: theme.amberGlow,
@@ -683,7 +700,7 @@ class _StatsRow extends StatelessWidget {
           child: _StatCard(
             theme: theme,
             label: 'AVG LOW',
-            value: data.avgLow,
+            value: theme.formatTempFromF(data.avgLowF),
             color: theme.sky,
             icon: Icons.ac_unit_rounded,
             glow: theme.skyGlow,
@@ -697,7 +714,7 @@ class _StatsRow extends StatelessWidget {
             value: data.avgRain,
             color: theme.rain,
             icon: Icons.water_drop_rounded,
-            glow: theme.rainDim.withOpacity(0.15),
+            glow: theme.rainDim.withValues(alpha: 0.15),
           ),
         ),
       ],
@@ -732,7 +749,7 @@ class _StatCard extends StatelessWidget {
         border: Border.all(color: theme.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(theme.isDark ? 0.0 : 0.05),
+            color: Colors.black.withValues(alpha: theme.isDark ? 0.0 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -781,7 +798,7 @@ class _StatCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// TEMPERATURE CARD
+// TEMPERATURE TREND CARD
 // ─────────────────────────────────────────────────────────────
 
 class _TempCard extends StatelessWidget {
@@ -795,33 +812,85 @@ class _TempCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxHigh = data.highTempsF.reduce(math.max);
+
     return _ChartCard(
       theme: theme,
       title: 'Temperature Trend',
-      trailing: Row(
-        children: [
-          _Dot(
-            theme: theme,
-            color: theme.amber,
-            label: 'High',
-          ),
-          const SizedBox(width: 14),
-          _Dot(
-            theme: theme,
-            color: theme.sky,
-            label: 'Low',
-          ),
-        ],
-      ),
-      height: 220,
-      child: CustomPaint(
-        painter: _TempPainter(
-          theme: theme,
-          high: data.highTemps,
-          low: data.lowTemps,
-          labels: data.weekLabels,
+      trailing: Text(
+        theme.fullTemperatureUnit,
+        style: TextStyle(
+          color: theme.sky,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
         ),
-        child: const SizedBox.expand(),
+      ),
+      child: Column(
+        children: List.generate(data.weekLabels.length, (index) {
+          final highF = data.highTempsF[index];
+          final lowF = data.lowTempsF[index];
+
+          final highText = theme.formatTempFromF(highF);
+          final lowText = theme.formatTempFromF(lowF);
+
+          final progress = (highF / maxHigh).clamp(0.0, 1.0);
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 44,
+                  child: Text(
+                    data.weekLabels[index],
+                    style: TextStyle(
+                      color: theme.textMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            lowText,
+                            style: TextStyle(
+                              color: theme.sky,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            highText,
+                            style: TextStyle(
+                              color: theme.amber,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 8,
+                          backgroundColor: theme.surfaceHi,
+                          color: theme.amber,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }
@@ -842,6 +911,8 @@ class _RainCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxRain = data.rainValues.reduce(math.max);
+
     return _ChartCard(
       theme: theme,
       title: 'Precipitation Forecast',
@@ -860,14 +931,54 @@ class _RainCard extends StatelessWidget {
           ),
         ),
       ),
-      height: 210,
-      child: CustomPaint(
-        painter: _RainPainter(
-          theme: theme,
-          values: data.rainValues,
-          labels: data.weekLabels,
-        ),
-        child: const SizedBox.expand(),
+      child: Column(
+        children: List.generate(data.weekLabels.length, (index) {
+          final rain = data.rainValues[index];
+          final progress = (rain / maxRain).clamp(0.0, 1.0);
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 44,
+                  child: Text(
+                    data.weekLabels[index],
+                    style: TextStyle(
+                      color: theme.textMuted,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 8,
+                      backgroundColor: theme.surfaceHi,
+                      color: theme.rain,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 38,
+                  child: Text(
+                    rain.toStringAsFixed(1),
+                    textAlign: TextAlign.right,
+                    style: TextStyle(
+                      color: theme.rain,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }
@@ -888,19 +999,21 @@ class _HumidityHintCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final highNum = int.tryParse(data.avgHigh.replaceAll('°', '')) ?? 70;
+    final highNumF = data.avgHighF;
 
-    final feel = highNum >= 82
+    final feel = highNumF >= 82
         ? 'Warm & Humid'
-        : highNum >= 74
+        : highNumF >= 74
         ? 'Mild & Comfortable'
         : 'Cool & Crisp';
 
-    final feelColor = highNum >= 82
+    final feelColor = highNumF >= 82
         ? theme.amber
-        : highNum >= 74
+        : highNumF >= 74
         ? theme.sky
         : theme.rain;
+
+    final peakF = data.highTempsF.reduce(math.max);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -915,7 +1028,7 @@ class _HumidityHintCard extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: feelColor.withOpacity(0.12),
+              color: feelColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -964,7 +1077,7 @@ class _HumidityHintCard extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text(
-                '${data.highTemps.reduce(math.max)}°F',
+                theme.formatTempFromF(peakF),
                 style: TextStyle(
                   color: theme.amber,
                   fontSize: 20,
@@ -980,21 +1093,19 @@ class _HumidityHintCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// SHARED CHART CARD WRAPPER
+// SHARED CARD WRAPPER
 // ─────────────────────────────────────────────────────────────
 
 class _ChartCard extends StatelessWidget {
   final _ForecastTheme theme;
   final String title;
   final Widget trailing;
-  final double height;
   final Widget child;
 
   const _ChartCard({
     required this.theme,
     required this.title,
     required this.trailing,
-    required this.height,
     required this.child,
   });
 
@@ -1008,7 +1119,7 @@ class _ChartCard extends StatelessWidget {
         border: Border.all(color: theme.border),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(theme.isDark ? 0.0 : 0.05),
+            color: Colors.black.withValues(alpha: theme.isDark ? 0.0 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -1032,391 +1143,11 @@ class _ChartCard extends StatelessWidget {
               trailing,
             ],
           ),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: height,
-            child: child,
-          ),
+          const SizedBox(height: 18),
+          child,
         ],
       ),
     );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// LEGEND DOT
-// ─────────────────────────────────────────────────────────────
-
-class _Dot extends StatelessWidget {
-  final _ForecastTheme theme;
-  final Color color;
-  final String label;
-
-  const _Dot({
-    required this.theme,
-    required this.color,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 8,
-          height: 8,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: TextStyle(
-            color: theme.textSecond,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// TEMPERATURE CHART PAINTER
-// ─────────────────────────────────────────────────────────────
-
-class _TempPainter extends CustomPainter {
-  final _ForecastTheme theme;
-  final List<int> high;
-  final List<int> low;
-  final List<String> labels;
-
-  const _TempPainter({
-    required this.theme,
-    required this.high,
-    required this.low,
-    required this.labels,
-  });
-
-  static const _min = 44.0;
-  static const _max = 92.0;
-  static const _l = 38.0;
-  static const _r = 12.0;
-  static const _t = 8.0;
-  static const _b = 28.0;
-
-  double _y(double value, double height) {
-    return _t + height - ((value - _min) / (_max - _min)) * height;
-  }
-
-  List<Offset> _points(List<int> values, double width, double height) {
-    final count = values.length;
-
-    return List.generate(count, (index) {
-      return Offset(
-        _l + (width / (count - 1)) * index,
-        _y(values[index].toDouble(), height),
-      );
-    });
-  }
-
-  Path _smoothPath(List<Offset> points) {
-    final path = Path()..moveTo(points[0].dx, points[0].dy);
-
-    for (int i = 0; i < points.length - 1; i++) {
-      final cp1 = Offset(
-        (points[i].dx + points[i + 1].dx) / 2,
-        points[i].dy,
-      );
-
-      final cp2 = Offset(
-        (points[i].dx + points[i + 1].dx) / 2,
-        points[i + 1].dy,
-      );
-
-      path.cubicTo(
-        cp1.dx,
-        cp1.dy,
-        cp2.dx,
-        cp2.dy,
-        points[i + 1].dx,
-        points[i + 1].dy,
-      );
-    }
-
-    return path;
-  }
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final chartWidth = size.width - _l - _r;
-    final chartHeight = size.height - _t - _b;
-
-    final gridPaint = Paint()
-      ..color = theme.grid
-      ..strokeWidth = 1;
-
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
-
-    for (final value in [50, 60, 70, 80, 90]) {
-      final y = _y(value.toDouble(), chartHeight);
-
-      canvas.drawLine(
-        Offset(_l, y),
-        Offset(_l + chartWidth, y),
-        gridPaint,
-      );
-
-      textPainter.text = TextSpan(
-        text: '$value°',
-        style: TextStyle(
-          color: theme.textMuted,
-          fontSize: 10,
-        ),
-      );
-
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(0, y - 6));
-    }
-
-    final highPoints = _points(high, chartWidth, chartHeight);
-    final lowPoints = _points(low, chartWidth, chartHeight);
-
-    for (int i = 0; i < labels.length; i++) {
-      final x = _l + (chartWidth / (labels.length - 1)) * i;
-
-      textPainter.text = TextSpan(
-        text: labels[i],
-        style: TextStyle(
-          color: theme.textMuted,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-        ),
-      );
-
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset(x - textPainter.width / 2, _t + chartHeight + 10),
-      );
-    }
-
-    void drawArea(List<Offset> points, Color color) {
-      final area = _smoothPath(points)
-        ..lineTo(points.last.dx, _t + chartHeight)
-        ..lineTo(points.first.dx, _t + chartHeight)
-        ..close();
-
-      canvas.drawPath(
-        area,
-        Paint()
-          ..color = color
-          ..style = PaintingStyle.fill,
-      );
-    }
-
-    drawArea(highPoints, theme.amberGlow);
-    drawArea(lowPoints, theme.skyGlow);
-
-    canvas.drawPath(
-      _smoothPath(highPoints),
-      Paint()
-        ..color = theme.amber
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
-    );
-
-    canvas.drawPath(
-      _smoothPath(lowPoints),
-      Paint()
-        ..color = theme.sky
-        ..strokeWidth = 2.5
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round,
-    );
-
-    void drawDots(List<Offset> points, Color color) {
-      for (final point in points) {
-        canvas.drawCircle(point, 5, Paint()..color = color);
-        canvas.drawCircle(point, 2.5, Paint()..color = Colors.white);
-      }
-    }
-
-    drawDots(highPoints, theme.amber);
-    drawDots(lowPoints, theme.sky);
-
-    for (int i = 0; i < high.length; i++) {
-      textPainter.text = TextSpan(
-        text: '${high[i]}°',
-        style: TextStyle(
-          color: theme.amber,
-          fontSize: 10,
-          fontWeight: FontWeight.w800,
-        ),
-      );
-
-      textPainter.layout();
-
-      textPainter.paint(
-        canvas,
-        Offset(
-          highPoints[i].dx - textPainter.width / 2,
-          highPoints[i].dy - 17,
-        ),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _TempPainter oldDelegate) {
-    return oldDelegate.high != high ||
-        oldDelegate.low != low ||
-        oldDelegate.theme.state != theme.state;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// PRECIPITATION CHART PAINTER
-// ─────────────────────────────────────────────────────────────
-
-class _RainPainter extends CustomPainter {
-  final _ForecastTheme theme;
-  final List<double> values;
-  final List<String> labels;
-
-  const _RainPainter({
-    required this.theme,
-    required this.values,
-    required this.labels,
-  });
-
-  static const _l = 38.0;
-  static const _r = 12.0;
-  static const _t = 8.0;
-  static const _b = 28.0;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final chartWidth = size.width - _l - _r;
-    final chartHeight = size.height - _t - _b;
-
-    final maxValue = values.reduce(math.max) * 1.2;
-
-    final gridPaint = Paint()
-      ..color = theme.grid
-      ..strokeWidth = 1;
-
-    final textPainter = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
-
-    for (int tick = 0; tick <= 4; tick++) {
-      final value = (maxValue / 4) * tick;
-      final y = _t + chartHeight - (value / maxValue) * chartHeight;
-
-      canvas.drawLine(
-        Offset(_l, y),
-        Offset(_l + chartWidth, y),
-        gridPaint,
-      );
-
-      textPainter.text = TextSpan(
-        text: value == 0 ? '0' : value.toStringAsFixed(1),
-        style: TextStyle(
-          color: theme.textMuted,
-          fontSize: 10,
-        ),
-      );
-
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(0, y - 6));
-    }
-
-    final itemWidth = chartWidth / values.length;
-    final barWidth = itemWidth * 0.55;
-
-    for (int i = 0; i < values.length; i++) {
-      final barHeight = (values[i] / maxValue) * chartHeight;
-      final x = _l + itemWidth * i + (itemWidth - barWidth) / 2;
-      final y = _t + chartHeight - barHeight;
-
-      final rect = Rect.fromLTWH(x, y, barWidth, barHeight);
-
-      final roundedRect = RRect.fromRectAndRadius(
-        rect,
-        const Radius.circular(7),
-      );
-
-      final shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [
-          theme.sky,
-          theme.rain.withOpacity(0.6),
-        ],
-      ).createShader(rect);
-
-      canvas.drawRRect(
-        roundedRect,
-        Paint()
-          ..shader = shader
-          ..style = PaintingStyle.fill,
-      );
-
-      canvas.drawRRect(
-        roundedRect,
-        Paint()
-          ..color = theme.sky.withOpacity(0.5)
-          ..strokeWidth = 1.5
-          ..style = PaintingStyle.stroke,
-      );
-
-      textPainter.text = TextSpan(
-        text: values[i].toStringAsFixed(1),
-        style: TextStyle(
-          color: theme.sky,
-          fontSize: 9,
-          fontWeight: FontWeight.w800,
-        ),
-      );
-
-      textPainter.layout();
-
-      textPainter.paint(
-        canvas,
-        Offset(x + barWidth / 2 - textPainter.width / 2, y - 14),
-      );
-
-      textPainter.text = TextSpan(
-        text: labels[i],
-        style: TextStyle(
-          color: theme.textMuted,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-        ),
-      );
-
-      textPainter.layout();
-
-      textPainter.paint(
-        canvas,
-        Offset(
-          x + barWidth / 2 - textPainter.width / 2,
-          _t + chartHeight + 10,
-        ),
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _RainPainter oldDelegate) {
-    return oldDelegate.values != values || oldDelegate.theme.state != theme.state;
   }
 }
 
