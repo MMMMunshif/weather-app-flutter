@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "864429547487",
+    "project_id": "weather-travel-app-munshif",
+    "storage_bucket": "weather-travel-app-munshif.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:864429547487:android:f5c5a7cbdb41763c012e6a",
+        "android_client_info": {
+          "package_name": "com.example.weather_travel_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCgeFGS5PxPuSTzBwIGhRdCF7x7HX8_zyc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
