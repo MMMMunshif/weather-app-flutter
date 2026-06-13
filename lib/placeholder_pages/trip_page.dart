@@ -78,7 +78,7 @@ class _TripPageState extends State<TripPage> {
   }
 
   String _locationKey(String city, String country) {
-    return '${city}_${country}'.toLowerCase().replaceAll(' ', '_');
+    return '${city}_$country'.toLowerCase().replaceAll(' ', '_');
   }
 
   String _weatherKey(WeatherLocation location) {
@@ -462,7 +462,9 @@ class _TripPageState extends State<TripPage> {
 
   void _removeLocation(WeatherLocation location) {
     setState(() {
-      tripLocations.removeWhere((item) => _weatherKey(item) == _weatherKey(location));
+      tripLocations.removeWhere(
+            (item) => _weatherKey(item) == _weatherKey(location),
+      );
       locationMeta.remove(_weatherKey(location));
 
       if (selectedForecastLocation != null &&
@@ -707,16 +709,33 @@ class _TripTheme {
   Color get subText => state.subTextColor;
   Color get accent => state.accentColor;
 
-  Color get softCard => isDark ? Colors.white.withOpacity(0.07) : Colors.white;
+  String get temperatureSymbol => state.temperatureSymbol;
+
+  String formatTemperature(String value) {
+    return state.formatTemperature(value);
+  }
+
+  String formatWindSpeed(String value) {
+    return state.formatWindSpeed(value);
+  }
+
+  Color get softCard =>
+      isDark ? Colors.white.withValues(alpha: 0.07) : Colors.white;
+
   Color get border =>
-      isDark ? Colors.white.withOpacity(0.08) : const Color(0xFFD8E1F0);
+      isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFD8E1F0);
+
   Color get searchBg =>
-      isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFE8EEF8);
+      isDark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFE8EEF8);
+
   Color get pillBg =>
-      isDark ? Colors.white.withOpacity(0.07) : const Color(0xFFE8EEF8);
+      isDark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFE8EEF8);
+
   Color get mapBg => isDark ? const Color(0xFF0B1828) : const Color(0xFFEAF3FF);
-  Color get overlayBg =>
-      isDark ? Colors.black.withOpacity(0.60) : Colors.black.withOpacity(0.25);
+
+  Color get overlayBg => isDark
+      ? Colors.black.withValues(alpha: 0.60)
+      : Colors.black.withValues(alpha: 0.25);
 }
 
 class _TopBar extends StatelessWidget {
@@ -745,7 +764,7 @@ class _TopBar extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.15),
+              color: Colors.orange.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(20),
             ),
             child: const Text(
@@ -762,11 +781,11 @@ class _TopBar extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: theme.accent.withOpacity(0.15),
+            color: theme.accent.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
-            '°C',
+            theme.temperatureSymbol,
             style: TextStyle(
               color: theme.accent,
               fontSize: 12,
@@ -944,7 +963,7 @@ class _SearchPanel extends StatelessWidget {
                   height: 30,
                   width: 30,
                   decoration: BoxDecoration(
-                    color: theme.accent.withOpacity(0.15),
+                    color: theme.accent.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Icon(
@@ -1091,7 +1110,7 @@ class _PlanCard extends StatelessWidget {
                 child: _ActionButton(
                   label: 'Clear Trip',
                   icon: Icons.delete_outline_rounded,
-                  backgroundColor: Colors.redAccent.withOpacity(0.15),
+                  backgroundColor: Colors.redAccent.withValues(alpha: 0.15),
                   textColor: Colors.redAccent,
                   onTap: onClear,
                 ),
@@ -1126,7 +1145,7 @@ class _DateButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-          color: theme.accent.withOpacity(0.10),
+          color: theme.accent.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
@@ -1248,8 +1267,8 @@ class _MapCard extends StatelessWidget {
             child: Icon(
               Icons.public_rounded,
               color: theme.isDark
-                  ? Colors.white.withOpacity(0.08)
-                  : Colors.black.withOpacity(0.08),
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.08),
               size: 130,
             ),
           ),
@@ -1278,11 +1297,13 @@ class _MapCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: theme.softCard,
-                      border: Border.all(color: theme.accent.withOpacity(0.35)),
+                      border: Border.all(
+                        color: theme.accent.withValues(alpha: 0.35),
+                      ),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '${location.city} ${location.temperature}',
+                      '${location.city} ${theme.formatTemperature(location.temperature)}',
                       style: TextStyle(
                         color: theme.text,
                         fontSize: 11,
@@ -1362,14 +1383,18 @@ class _TripLocationCard extends StatelessWidget {
         ? location.city
         : '${location.city}, ${location.country}';
 
+    final temperatureText = theme.formatTemperature(location.temperature);
+    final windText = theme.formatWindSpeed(location.windSpeed);
+
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: isSelected ? theme.accent.withOpacity(0.12) : theme.softCard,
+          color: isSelected ? theme.accent.withValues(alpha: 0.12) : theme.softCard,
           border: Border.all(
-            color: isSelected ? theme.accent.withOpacity(0.55) : theme.border,
+            color:
+            isSelected ? theme.accent.withValues(alpha: 0.55) : theme.border,
           ),
           borderRadius: BorderRadius.circular(16),
         ),
@@ -1384,7 +1409,7 @@ class _TripLocationCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  location.temperature,
+                  temperatureText,
                   style: TextStyle(
                     color: theme.text,
                     fontSize: 34,
@@ -1409,6 +1434,8 @@ class _TripLocationCard extends StatelessWidget {
                       const SizedBox(height: 3),
                       Text(
                         location.condition,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: theme.subText,
                           fontSize: 12,
@@ -1448,7 +1475,7 @@ class _TripLocationCard extends StatelessWidget {
                 _InfoPill(
                   theme: theme,
                   icon: Icons.air_outlined,
-                  text: 'Wind ${location.windSpeed}',
+                  text: 'Wind $windText',
                 ),
                 const SizedBox(width: 8),
                 _InfoPill(
@@ -1563,7 +1590,7 @@ class _ForecastCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      item.high,
+                      theme.formatTemperature(item.high),
                       style: TextStyle(
                         color: theme.text,
                         fontSize: 12,
@@ -1572,7 +1599,7 @@ class _ForecastCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      item.low,
+                      theme.formatTemperature(item.low),
                       style: TextStyle(
                         color: theme.subText,
                         fontSize: 11,

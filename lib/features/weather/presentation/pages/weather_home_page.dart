@@ -249,8 +249,12 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
                       location: currentWeather!,
                       onRefresh: _loadCurrentLocationWeather,
                       accentColor: settingsState.accentColor,
-                      temperatureText: settingsState.formatTemperature(currentWeather!.temperature),
-                      windSpeedText: settingsState.formatWindSpeed(currentWeather!.windSpeed),
+                      temperatureText: settingsState.formatTemperature(
+                        currentWeather!.temperature,
+                      ),
+                      windSpeedText: settingsState.formatWindSpeed(
+                        currentWeather!.windSpeed,
+                      ),
                       unitLabel: settingsState.temperatureSymbol,
                     ),
 
@@ -267,7 +271,7 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
 
                 if (isSavedLocationsLoading)
                   SizedBox(
-                    height: 158,
+                    height: 176,
                     child: Center(
                       child: CircularProgressIndicator(
                         color: settingsState.accentColor,
@@ -285,6 +289,7 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
                 else
                   _SavedLocationsRow(
                     locations: savedWeatherLocations,
+                    settingsState: settingsState,
                     cardColor: settingsState.cardColor,
                     textColor: settingsState.textColor,
                     subTextColor: settingsState.subTextColor,
@@ -307,6 +312,7 @@ class _WeatherHomePageState extends State<WeatherHomePage> {
 
                 _FiveDayForecast(
                   location: currentWeather ?? sampleLocations.first,
+                  settingsState: settingsState,
                   cardColor: settingsState.cardColor,
                   textColor: settingsState.textColor,
                   subTextColor: settingsState.subTextColor,
@@ -560,7 +566,7 @@ class _TopWeatherCard extends StatelessWidget {
             alignment: Alignment.center,
             child: Text(
               unitLabel,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
@@ -653,6 +659,7 @@ class _LocationsHeader extends StatelessWidget {
 
 class _SavedLocationsRow extends StatelessWidget {
   final List<WeatherLocation> locations;
+  final AppSettingsState settingsState;
   final Color cardColor;
   final Color textColor;
   final Color subTextColor;
@@ -661,6 +668,7 @@ class _SavedLocationsRow extends StatelessWidget {
 
   const _SavedLocationsRow({
     required this.locations,
+    required this.settingsState,
     required this.cardColor,
     required this.textColor,
     required this.subTextColor,
@@ -671,7 +679,7 @@ class _SavedLocationsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 158,
+      height: 176,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: locations.length,
@@ -685,6 +693,7 @@ class _SavedLocationsRow extends StatelessWidget {
             width: 180,
             child: _SmallLocationCard(
               location: location,
+              settingsState: settingsState,
               cardColor: cardColor,
               textColor: textColor,
               subTextColor: subTextColor,
@@ -797,6 +806,7 @@ class _EmptySavedLocationsCard extends StatelessWidget {
 
 class _SmallLocationCard extends StatelessWidget {
   final WeatherLocation location;
+  final AppSettingsState settingsState;
   final Color cardColor;
   final Color textColor;
   final Color subTextColor;
@@ -806,6 +816,7 @@ class _SmallLocationCard extends StatelessWidget {
 
   const _SmallLocationCard({
     required this.location,
+    required this.settingsState,
     required this.cardColor,
     required this.textColor,
     required this.subTextColor,
@@ -826,7 +837,7 @@ class _SmallLocationCard extends StatelessWidget {
           onTap: onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 250),
-            height: 158,
+            height: 176,
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(10, 14, 10, 12),
             decoration: BoxDecoration(
@@ -870,7 +881,7 @@ class _SmallLocationCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  location.temperature,
+                  settingsState.formatTemperature(location.temperature),
                   style: TextStyle(
                     color: textColor,
                     fontSize: 30,
@@ -889,6 +900,18 @@ class _SmallLocationCard extends StatelessWidget {
                       color: textColor,
                       fontSize: 11,
                     ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Wind ${settingsState.formatWindSpeed(location.windSpeed)}',
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: subTextColor,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],
@@ -922,12 +945,14 @@ class _SmallLocationCard extends StatelessWidget {
 
 class _FiveDayForecast extends StatelessWidget {
   final WeatherLocation location;
+  final AppSettingsState settingsState;
   final Color cardColor;
   final Color textColor;
   final Color subTextColor;
 
   const _FiveDayForecast({
     required this.location,
+    required this.settingsState,
     required this.cardColor,
     required this.textColor,
     required this.subTextColor,
@@ -974,7 +999,7 @@ class _FiveDayForecast extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  item.high,
+                  settingsState.formatTemperature(item.high),
                   style: TextStyle(
                     color: textColor,
                     fontSize: 14,
@@ -983,7 +1008,7 @@ class _FiveDayForecast extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.low,
+                  settingsState.formatTemperature(item.low),
                   style: TextStyle(
                     color: subTextColor,
                     fontSize: 13,
